@@ -1,5 +1,5 @@
 import type { ControlInput, StageItem, Terrain, Vec2 } from '../core/types';
-import { GAME, VIEW } from '../core/config';
+import { GAME, TERRAIN, VIEW } from '../core/config';
 import { isPillar } from '../game/stage';
 
 export interface WorldView {
@@ -107,7 +107,8 @@ function drawFrontier(g: CanvasRenderingContext2D, v: WorldView): void {
   // 予告矢印
   const { slope, intensity, active, pulse } = v.input;
   const len = 40 + 60 * intensity;
-  const angle = active ? -Math.atan(slope * 0.9) : 0;
+  // 地形生成と同じ式で、実際にできる坂の角度を示す
+  const angle = active ? -Math.atan(slope * TERRAIN.maxSlope * (0.3 + 0.7 * intensity)) : 0;
   g.save();
   g.translate(x, y);
   g.rotate(angle);

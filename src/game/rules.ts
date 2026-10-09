@@ -20,6 +20,11 @@ export function createGameState(): GameState {
   };
 }
 
+/** 走り始めてから elapsedSec 秒後のランナーの x。 */
+export function runnerXAt(elapsedSec: number): number {
+  return Math.min(START_X + elapsedSec * GAME.runSpeed, GOAL_X);
+}
+
 /** ランナーの当たり判定の円の中心（地面の上に乗る）。 */
 export function runnerCenter(s: GameState) {
   return { x: s.runner.x, y: s.runner.y + GAME.runnerRadius };
@@ -38,7 +43,7 @@ export function stepGame(prev: GameState, dtSec: number, world: StepWorld): { st
 
   const events: GameEvent[] = [];
   const elapsedSec = prev.elapsedSec + dtSec;
-  const x = Math.min(START_X + elapsedSec * GAME.runSpeed, GOAL_X);
+  const x = runnerXAt(elapsedSec);
   const s: GameState = {
     ...prev,
     elapsedSec,

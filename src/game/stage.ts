@@ -23,7 +23,7 @@ const LAYOUT: Entry[] = [
   { t: 4, kind: 'note', y: 300 },
   { t: 5, kind: 'note', y: 340 },
   { t: 6, kind: 'note', y: 380 },
-  { t: 9, kind: 'pillar', top: 360 },
+  { t: 9, kind: 'pillar', top: 320 },
   { t: 11, kind: 'note', y: 440 },
   { t: 13.5, kind: 'ceiling', bottom: 360 },
   { t: 15.5, kind: 'note', y: 200 },

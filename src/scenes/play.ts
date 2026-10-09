@@ -5,7 +5,7 @@ import { TerrainGenerator } from '../terrain/generator';
 import { drawWorld } from '../render/world';
 import { drawHud } from '../render/hud';
 import { buildStage, GOAL_X, START_X } from '../game/stage';
-import { createGameState, isInvulnerable, stepGame, toResult } from '../game/rules';
+import { createGameState, isInvulnerable, runnerXAt, stepGame, toResult } from '../game/rules';
 
 const LOOKAHEAD_PX = GAME.runSpeed * TERRAIN.lookaheadSec;
 
@@ -39,7 +39,7 @@ export class PlayScene implements Scene<'play'> {
     if (this.finished) return;
 
     // 地形を先に伸ばしてから、その地形の上でランナーを進める
-    const nextX = Math.min(this.state.runner.x + dtSec * GAME.runSpeed, GOAL_X);
+    const nextX = runnerXAt(this.state.elapsedSec + dtSec);
     this.terrain.advance(this.input, nextX + LOOKAHEAD_PX, dtSec);
     this.state = stepGame(this.state, dtSec, {
       heightAt: (x) => this.terrain.heightAt(x),
