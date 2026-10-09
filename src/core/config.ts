@@ -27,8 +27,8 @@ export const TERRAIN = {
   maxSlopeChangePerPx: 0.006,
   /** 無音時に平坦へ戻る速さ（1px あたりの減衰率）。 */
   flattenPerPx: 0.004,
-  pulseHeight: 60,
-  pulseWidth: 160,
+  pulseHeight: 50,
+  pulseWidth: 200,
 } as const;
 
 export const STAGE_LENGTH = GAME.runSpeed * GAME.durationSec;
