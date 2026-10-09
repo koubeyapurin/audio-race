@@ -1,0 +1,12 @@
+# レーンA（入力・画面）: Gaku-Fujioka / レーンB（地形・ゲーム）: koubeyapurin
+# 共有ファイルは両者がレビュアーになる
+*                       @koubeyapurin @Gaku-Fujioka
+/src/input/             @Gaku-Fujioka
+/src/scenes/title.ts    @Gaku-Fujioka
+/src/scenes/micSetup.ts @Gaku-Fujioka
+/src/scenes/result.ts   @Gaku-Fujioka
+/src/render/hud.ts      @Gaku-Fujioka
+/src/terrain/           @koubeyapurin
+/src/game/              @koubeyapurin
+/src/render/world.ts    @koubeyapurin
+/src/scenes/play.ts     @koubeyapurin

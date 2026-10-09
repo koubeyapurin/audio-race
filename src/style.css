@@ -1,0 +1,8 @@
+html, body { margin: 0; height: 100%; background: #10131c; color: #f2f4f8;
+  font-family: system-ui, "Segoe UI", "Yu Gothic UI", sans-serif; }
+#stage { position: relative; width: min(100vw, calc(100vh * 16 / 9)); aspect-ratio: 16 / 9;
+  margin: 0 auto; top: 50%; transform: translateY(-50%); }
+#game { width: 100%; height: 100%; display: block; background: #1b2033; }
+/* シーンごとのDOM UI（ボタン等）。シーン切替時に main.ts が中身を空にする */
+#ui { position: absolute; inset: 0; pointer-events: none; }
+#ui > * { pointer-events: auto; }
