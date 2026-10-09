@@ -1,5 +1,6 @@
-import type { ControlInput, Terrain, Vec2 } from '../core/types';
+import type { ControlInput, StageItem, Terrain, Vec2 } from '../core/types';
 import { GAME, VIEW } from '../core/config';
+import { isPillar } from '../game/stage';
 
 export interface WorldView {
   terrain: Terrain;
@@ -11,6 +12,10 @@ export interface WorldView {
   stageLength: number;
   input: ControlInput;
   timeSec: number;
+  items: readonly StageItem[];
+  collectedIds: ReadonlySet<string>;
+  /** 被弾後の無敵時間中（点滅させる）。 */
+  invulnerable: boolean;
 }
 
 const COLORS = {
@@ -22,6 +27,9 @@ const COLORS = {
   frontier: '#ffd34d',
   runner: '#ff6b8b',
   goal: '#ffffff',
+  note: '#ffd34d',
+  obstacle: '#e2475b',
+  obstacleEdge: '#ff9aa8',
 } as const;
 
 /** ワールド座標 → 画面座標（y は上向き → 下向きに反転）。 */
@@ -31,8 +39,11 @@ const sy = (y: number) => VIEW.height - y;
 export function drawWorld(g: CanvasRenderingContext2D, v: WorldView): void {
   drawSky(g);
   drawGoal(g, v);
+  // 柱は地面の後ろに描く（地面を高くすると「埋まって」見える）
+  drawItems(g, v, (i) => isPillar(i));
   drawTerrain(g, v);
   drawFrontier(g, v);
+  drawItems(g, v, (i) => !isPillar(i));
   drawRunner(g, v);
 }
 
@@ -126,7 +137,44 @@ function drawFrontier(g: CanvasRenderingContext2D, v: WorldView): void {
   g.fillText('ここから先を声でつくる ▶', x + 8, 64);
 }
 
+function drawItems(g: CanvasRenderingContext2D, v: WorldView, filter: (i: StageItem) => boolean): void {
+  for (const item of v.items) {
+    const x = sx(v, item.x);
+    if (x < -item.w || x > VIEW.width + item.w || !filter(item)) continue;
+    if (item.kind === 'note') {
+      if (!v.collectedIds.has(item.id)) drawNote(g, x, sy(item.y), item.w / 2, v.timeSec);
+    } else {
+      const top = sy(item.y + item.h / 2);
+      g.fillStyle = COLORS.obstacle;
+      g.fillRect(x - item.w / 2, top, item.w, item.h);
+      g.strokeStyle = COLORS.obstacleEdge;
+      g.lineWidth = 3;
+      g.strokeRect(x - item.w / 2, top, item.w, item.h);
+    }
+  }
+}
+
+function drawNote(g: CanvasRenderingContext2D, x: number, y: number, r: number, t: number): void {
+  const bob = Math.sin(t * 4 + x * 0.01) * 3;
+  g.save();
+  g.translate(x, y + bob);
+  g.fillStyle = COLORS.note;
+  g.strokeStyle = COLORS.note;
+  // 八分音符っぽい形
+  g.beginPath();
+  g.ellipse(-r * 0.25, r * 0.45, r * 0.42, r * 0.32, -0.4, 0, Math.PI * 2);
+  g.fill();
+  g.lineWidth = 4;
+  g.beginPath();
+  g.moveTo(r * 0.12, r * 0.4);
+  g.lineTo(r * 0.12, -r * 0.8);
+  g.quadraticCurveTo(r * 0.7, -r * 0.5, r * 0.6, -r * 0.05);
+  g.stroke();
+  g.restore();
+}
+
 function drawRunner(g: CanvasRenderingContext2D, v: WorldView): void {
+  if (v.invulnerable && Math.floor(v.timeSec * 12) % 2 === 0) return;
   const x = sx(v, v.runner.x);
   const r = GAME.runnerRadius;
   const y = sy(v.runner.y) - r;

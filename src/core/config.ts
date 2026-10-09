@@ -24,7 +24,7 @@ export const TERRAIN = {
   /** |dy/dx| の上限。 */
   maxSlope: 0.9,
   /** 1px あたりの傾き変化の上限（急変防止）。 */
-  maxSlopeChangePerPx: 0.006,
+  maxSlopeChangePerPx: 0.01,
   /** 無音時に平坦へ戻る速さ（1px あたりの減衰率）。 */
   flattenPerPx: 0.004,
   pulseHeight: 50,

@@ -1,13 +1,13 @@
-import type { ControlInput, InputSource, Scene, SceneContext, SceneParams } from '../core/types';
+import type { ControlInput, GameState, InputSource, Scene, SceneContext, SceneParams, StageItem } from '../core/types';
 import { NEUTRAL_INPUT } from '../core/types';
-import { GAME, STAGE_LENGTH, TERRAIN, VIEW } from '../core/config';
+import { GAME, TERRAIN, VIEW } from '../core/config';
 import { TerrainGenerator } from '../terrain/generator';
 import { drawWorld } from '../render/world';
 import { drawHud } from '../render/hud';
+import { buildStage, GOAL_X, START_X } from '../game/stage';
+import { createGameState, isInvulnerable, stepGame, toResult } from '../game/rules';
 
 const LOOKAHEAD_PX = GAME.runSpeed * TERRAIN.lookaheadSec;
-/** スタート地点の x（左側に少し地面を見せる）。 */
-const START_X = GAME.runnerScreenX;
 
 /** プレイ画面。地形生成・ランナー移動・描画をまとめる。 */
 export class PlayScene implements Scene<'play'> {
@@ -17,8 +17,8 @@ export class PlayScene implements Scene<'play'> {
   private devKeys = new DevKeys();
   private input: ControlInput = { ...NEUTRAL_INPUT };
   private countdown: number = GAME.countdownSec;
-  private runSec = 0;
-  private runnerX: number = START_X;
+  private items: StageItem[] = buildStage();
+  private state: GameState = createGameState();
   private finished = false;
 
   enter(ctx: SceneContext, params: SceneParams['play']): void {
@@ -38,36 +38,41 @@ export class PlayScene implements Scene<'play'> {
     }
     if (this.finished) return;
 
-    this.runSec += dtSec;
-    this.runnerX = Math.min(START_X + this.runSec * GAME.runSpeed, START_X + STAGE_LENGTH);
-    this.terrain.advance(this.input, this.runnerX + LOOKAHEAD_PX, dtSec);
+    // 地形を先に伸ばしてから、その地形の上でランナーを進める
+    const nextX = Math.min(this.state.runner.x + dtSec * GAME.runSpeed, GOAL_X);
+    this.terrain.advance(this.input, nextX + LOOKAHEAD_PX, dtSec);
+    this.state = stepGame(this.state, dtSec, {
+      heightAt: (x) => this.terrain.heightAt(x),
+      items: this.items,
+    }).state;
 
-    if (this.runnerX >= START_X + STAGE_LENGTH) {
+    if (this.state.phase === 'cleared' || this.state.phase === 'gameover') {
       this.finished = true;
-      this.ctx.goTo('result', {
-        result: { outcome: 'clear', score: GAME.clearBonus, notesCollected: 0, notesTotal: 0 },
-        source: this.source,
-      });
+      this.ctx.goTo('result', { result: toResult(this.state, this.items), source: this.source });
     }
   }
 
   render(g: CanvasRenderingContext2D): void {
-    const runner = { x: this.runnerX, y: this.terrain.heightAt(this.runnerX) };
+    const s = this.state;
+    const runner = { x: s.runner.x, y: this.terrain.heightAt(s.runner.x) };
     drawWorld(g, {
       terrain: this.terrain,
       runner,
-      cameraX: this.runnerX - GAME.runnerScreenX,
+      cameraX: s.runner.x - GAME.runnerScreenX,
       frontierX: this.terrain.generatedUntil,
-      stageLength: START_X + STAGE_LENGTH,
+      stageLength: GOAL_X,
       input: this.input,
-      timeSec: this.runSec,
+      timeSec: s.elapsedSec,
+      items: this.items,
+      collectedIds: s.collectedIds,
+      invulnerable: isInvulnerable(s),
     });
     drawHud(g, {
       mode: this.source.kind,
-      score: 0,
-      lives: GAME.lives,
-      progress: this.runSec / GAME.durationSec,
-      remainingSec: Math.max(0, GAME.durationSec - this.runSec),
+      score: s.score,
+      lives: s.lives,
+      progress: (s.runner.x - START_X) / (GOAL_X - START_X),
+      remainingSec: Math.max(0, (GOAL_X - s.runner.x) / GAME.runSpeed),
       input: this.input,
       features: this.source.debugFeatures(),
     });
