@@ -48,6 +48,14 @@ export function drawHud(g: CanvasRenderingContext2D, hud: HudModel): void {
   g.textBaseline = 'alphabetic';
   g.setLineDash([]);
 
+  // CSSで縮小されたゲーム領域では、細かい診断表示より主要情報を大きく出す。
+  const displayWidth = g.canvas?.clientWidth;
+  if (typeof displayWidth === 'number' && displayWidth > 0 && displayWidth <= 900) {
+    drawCompactHud(g, hud, slope, intensity, progress, pulse.recordLabel, nowMs < pulse.untilMs);
+    g.restore();
+    return;
+  }
+
   // 予告ライン（通常 x≈770）とランナー（x=320）の手前に収める。
   panel(g, 24, 18, 688, 100);
   text(g, 'スコア', 44, 42, 16, COLORS.muted, 180);
@@ -101,6 +109,23 @@ export function drawHud(g: CanvasRenderingContext2D, hud: HudModel): void {
     hints.forEach((hint, i) => text(g, hint, 44, 434 + i * 22, 14, COLORS.muted, 212));
   }
   g.restore();
+}
+
+function drawCompactHud(g: CanvasRenderingContext2D, hud: HudModel, slope: number,
+  intensity: number, progress: number, record: string, glowing: boolean): void {
+  // 最大の上り坂でもランナーの頭（y=124付近）を覆わない高さに収める。
+  panel(g, 18, 18, 1244, 100);
+  text(g, `${Math.floor(bounded(hud.score, 0, Number.MAX_SAFE_INTEGER))} 点`, 36, 60, 40, COLORS.text, 270);
+  text(g, `♥ ${Math.floor(bounded(hud.lives, 0, GAME.lives))}/${GAME.lives}`, 330, 60, 40, COLORS.life, 200);
+  text(g, `残り ${Math.ceil(bounded(hud.remainingSec, 0, GAME.durationSec))} 秒`, 550, 60, 36, COLORS.text, 300);
+  text(g, `BEST ${record}`, 872, 60, 34, COLORS.rhythm, 370);
+  const direction = slope > 0 ? '↑ 上り' : slope < 0 ? '↓ 下り' : '→ 平坦';
+  text(g, `${direction} ${Math.round(Math.abs(slope) * 100)}%`, 36, 103, 34,
+    slope < 0 ? COLORS.down : COLORS.up, 340);
+  text(g, `強さ ${Math.round(intensity * 100)}%`, 400, 103, 34, COLORS.text, 270);
+  text(g, glowing ? '波：検出！' : hud.input.active ? '前方の地形に反映' : '平らに戻ります',
+    700, 103, 32, glowing ? COLORS.rhythm : COLORS.muted, 540);
+  bar(g, 36, 110, 1208, 5, progress, COLORS.up);
 }
 
 function inputStatus(mode: HudModel['mode'], input: Readonly<ControlInput>): string {

@@ -49,6 +49,22 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('HUD', () => {
+  it.each([390, 844])('表示幅%sでは主要情報を優先し、入力と波を大きく表示する', (width) => {
+    const c = canvas(); c.styles.canvas = { clientWidth: width };
+    drawHud(c.g, model({ mode: 'mic', input: { slope: -0.5, intensity: 0.7, pulse: true, active: true } }));
+    expect(c.texts()).toEqual(expect.arrayContaining(['400 点', '♥ 2/3', '残り 45 秒', 'BEST 記録なし',
+      '↓ 下り 50%', '強さ 70%', '波：検出！']));
+    expect(c.texts().some((value) => value.includes('RMS'))).toBe(false);
+    const panels = c.ops.filter((op) => op.name === 'strokeRect');
+    expect(panels.every((op) => Number(op.args[1]) + Number(op.args[3]) < 124)).toBe(true);
+    expect(c.styles.globalAlpha).toBe(c.original.globalAlpha); expect(c.stack).toHaveLength(0);
+  });
+
+  it('画面幅の変更を次の描画で反映し、入力を読むことなく通常HUDに戻す', () => {
+    const c = canvas(); const display = { clientWidth: 390 }; c.styles.canvas = display;
+    drawHud(c.g, model()); expect(c.texts()).toContain('平らに戻ります');
+    display.clientWidth = 1280; c.clear(); drawHud(c.g, model()); expect(c.texts()).toContain('地形の操作');
+  });
   it('スコア・残り時間・進捗・残り割合・ライフを表示し、描画状態を復元する', () => {
     const c = canvas(); drawHud(c.g, model());
     expect(c.texts()).toEqual(expect.arrayContaining(['400', '45 秒', '進捗 25% / 残り 75%', 'キー操作']));
