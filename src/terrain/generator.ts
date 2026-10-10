@@ -27,6 +27,8 @@ export class TerrainGenerator implements Terrain {
   private outSlope = 0;
   private bumps: Bump[] = [];
   private prevBump = 0;
+  /** 直前の区間で、上下限の手前の減速によって出力が抑えられていたか。 */
+  private limited = false;
 
   constructor(
     initialFlatUntil: number,
@@ -114,14 +116,17 @@ export class TerrainGenerator implements Terrain {
     const lo = this.outSlope - maxDelta;
     const hi = this.outSlope + maxDelta;
     // 坂の傾き＋山の傾きに沿って進み、目標の高さとのずれは少しずつ詰める
-    const bumpSlope = (bump - this.prevBump) / step;
+    // 上下限で抑えられている間は山の傾きを足さない（山の後半でへこむのを防ぐ）
+    const bumpSlope = this.limited ? 0 : (bump - this.prevBump) / step;
     this.prevBump = bump;
     const correction = (POSITION_GAIN * (this.baseY + bump - prev)) / step;
     let s = clamp(this.slope + bumpSlope + correction, lo, hi);
     s = clamp(s, -c.maxSlope, c.maxSlope);
     // 次の点から先、変化量の上限で減速しても上下限を越えない傾きに抑える
+    const wanted = s;
     s = Math.min(s, Math.max(lo, brakeLimit(c.maxHeight - prev, accel, step)));
     s = Math.max(s, Math.min(hi, -brakeLimit(prev - c.minHeight, accel, step)));
+    this.limited = s !== wanted;
 
     const y = clamp(prev + s * step, c.minHeight, c.maxHeight);
     this.outSlope = (y - prev) / step;
