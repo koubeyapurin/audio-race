@@ -1,18 +1,6 @@
 import type { InputSource, Scene, SceneContext, SceneParams } from '../core/types';
-
-const BEST_SCORE_KEY = 'voice-terrain-runner:best-score';
-
-function recordBestScore(score: number): number | null {
-  try {
-    const saved = localStorage.getItem(BEST_SCORE_KEY);
-    const previous = saved === null ? 0 : Number(saved);
-    const best = Math.max(score, Number.isFinite(previous) && previous >= 0 ? previous : 0);
-    localStorage.setItem(BEST_SCORE_KEY, String(best));
-    return best;
-  } catch {
-    return null;
-  }
-}
+import { resultGoal, safeCount } from './resultGoals';
+import { recordBestScore } from './resultRecords';
 
 /** リトライでは同じ入力源を引き継ぎ、画面を離れると DOM を解放する。 */
 export class ResultScene implements Scene<'result'> {
@@ -30,7 +18,9 @@ export class ResultScene implements Scene<'result'> {
     this.leaving = false;
     const result = params.result;
     this.cleared = result.outcome === 'clear';
-    const best = recordBestScore(result.score);
+    const goal = resultGoal(result);
+    const record = recordBestScore(this.source.kind, result.score);
+    const mode = this.source.kind === 'mic' ? 'マイク' : 'キーボード';
     const panel = document.createElement('section');
     panel.className = 'result-screen';
     panel.setAttribute('aria-labelledby', 'result-title');
@@ -41,7 +31,7 @@ export class ResultScene implements Scene<'result'> {
           padding:3%; overflow:auto; color:#edf4ff; text-align:center;
           font-size:clamp(12px,min(1.5vw,2.7vh),20px); }
         .result-screen h1 { margin:0; font-size:clamp(30px,min(6vw,10vh),80px); line-height:1.1; }
-        .result-screen p { margin:0; color:#c3cee4; }
+        .result-screen p { margin:0; color:#c3cee4; max-width:100%; overflow-wrap:anywhere; }
         .result-screen .stats { display:flex; gap:clamp(16px,4vw,48px); margin:12px 0;
           padding:18px 36px; background:#192d42; border:1px solid #59708b; border-radius:16px; }
         .result-screen .stats dt { color:#c3cee4; font-size:.9em; }
@@ -52,7 +42,8 @@ export class ResultScene implements Scene<'result'> {
         .result-screen button.secondary { color:#edf4ff; background:#263c55; border-color:#8397b5; }
         .result-screen button:hover { filter:brightness(1.12); }
         .result-screen button:focus-visible { outline:3px solid #fff; outline-offset:4px; }
-        .result-screen .mode, .result-screen .best { font-size:.9em; }
+        .result-screen .mode, .result-screen .best, .result-screen .record { font-size:.9em; }
+        .result-screen .record { color:#ffd34d; }
         @media (max-width:600px), (max-height:440px) {
           .result-screen { gap:6px; justify-content:flex-start; }
           .result-screen .stats { margin:0; padding:8px 20px; }
@@ -66,6 +57,7 @@ export class ResultScene implements Scene<'result'> {
         <div><dt>集めた音符</dt><dd data-notes></dd></div>
       </dl>
       <p class="best" data-best></p>
+      <p class="record" data-record></p>
       <p class="mode" data-mode></p>
       <div class="actions">
         <button type="button" data-retry>リトライ（R）</button>
@@ -73,13 +65,19 @@ export class ResultScene implements Scene<'result'> {
       </div>
     `;
     panel.querySelector('h1')!.textContent = this.cleared ? 'CLEAR!' : 'GAME OVER';
-    panel.querySelector<HTMLElement>('[data-message]')!.textContent = this.cleared
-      ? 'ゴール到達！ 次はもっと多くの音符を集めよう。' : 'もう一度、声やキーで道をつくって挑戦しよう。';
-    panel.querySelector<HTMLElement>('[data-score]')!.textContent = result.score.toLocaleString('ja-JP');
-    panel.querySelector<HTMLElement>('[data-notes]')!.textContent = `${result.notesCollected} / ${result.notesTotal}`;
+    panel.querySelector<HTMLElement>('[data-message]')!.textContent = goal.message;
+    panel.querySelector<HTMLElement>('[data-score]')!.textContent = safeCount(result.score).toLocaleString('ja-JP');
+    panel.querySelector<HTMLElement>('[data-notes]')!.textContent = `${goal.collected} / ${goal.total}`
+      + (goal.percent === null ? '' : `（${goal.percent}%）`);
     const bestLabel = panel.querySelector<HTMLElement>('[data-best]')!;
-    bestLabel.hidden = best === null;
-    bestLabel.textContent = best === null ? '' : `ベストスコア：${best.toLocaleString('ja-JP')}`;
+    bestLabel.textContent = record.best === null ? `${mode}の自己ベスト：${record.available ? '記録なし' : '利用できません'}`
+      : `${mode}の自己ベスト：${record.best.toLocaleString('ja-JP')} 点`;
+    panel.querySelector<HTMLElement>('[data-record]')!.textContent = !record.available
+      ? 'このブラウザに記録を保存できません。リトライはできます。'
+      : record.status === 'first' ? '最初の記録をこのブラウザに保存しました！'
+      : record.status === 'improved' ? `自己ベスト更新！ 前回から${result.score - record.previous!}点アップ！`
+      : record.status === 'tied' ? '自己ベストと同点！ 記録はこのブラウザに保存されています。'
+      : '記録はこのブラウザに保存されています。次は自己ベストを目指そう！';
     panel.querySelector<HTMLElement>('[data-mode]')!.textContent = this.source.kind === 'mic'
       ? 'マイク操作で再挑戦します。結果画面ではマイクは停止中です。' : 'キーボード操作で再挑戦します。';
     panel.querySelector<HTMLButtonElement>('[data-retry]')!.addEventListener('click', () => this.retry());
