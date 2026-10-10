@@ -1,6 +1,6 @@
 # Voice Terrain Runner
 
-声の高さ・大きさ・リズムで、走る先の地形をつくる横スクロールレースゲーム（JPHACKS 向け共同開発練習）。
+声の高さ・大きさ・リズムで、走る先の地形をつくる横スクロールレースゲーム（共同開発の練習用。JPHACKS 本番の作品とは別）。
 要件定義: [docs/requirements.md](docs/requirements.md) / 開発ルール: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
 
 ## 必要なもの（Windows）
@@ -38,8 +38,10 @@ npm run dev        # http://localhost:5173 を Chrome / Edge で開く
 
 | 画面 | キー |
 |---|---|
+| タイトル | Enter: キーボードで遊ぶ、M: マイクで遊ぶ |
+| マイク準備 | K: キーボードで遊ぶ、Esc: タイトルへ |
 | プレイ中 | Esc: ポーズ（マイクも停止）|
-| ポーズ中 | Esc / Enter: 再開、T: タイトルへ |
+| ポーズ中 | Esc / Enter: 再開（マイクを開き直し、1秒のカウントダウン後に走り出す）、T: タイトルへ |
 | 結果 | R: リトライ、Esc: タイトルへ |
 
 タブを切り替えると自動でポーズします。ベストスコアはブラウザに保存されます。
