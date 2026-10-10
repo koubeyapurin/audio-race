@@ -14,29 +14,33 @@ export class PlayScene implements Scene<'play'> {
   private ctx!: SceneContext;
   private source!: InputSource;
   private terrain!: TerrainGenerator;
-  private devKeys = new DevKeys();
   private input: ControlInput = { ...NEUTRAL_INPUT };
   private countdown: number = GAME.countdownSec;
   private items: StageItem[] = buildStage();
   private state: GameState = createGameState();
   private finished = false;
+  private exited = false;
+  /** ポーズ中に入力源（マイク）を止めている間、ゲームを進めない。 */
+  private paused = false;
+  /** start() が終わるまで入力を読まない。 */
+  private sourceReady = false;
+  private pauseMenu: HTMLElement | null = null;
 
   enter(ctx: SceneContext, params: SceneParams['play']): void {
     this.ctx = ctx;
     this.source = params.source;
     this.terrain = new TerrainGenerator(START_X + LOOKAHEAD_PX);
-    void this.source.start();
-    if (this.source.kind === 'keyboard') this.devKeys.start();
+    this.startSource();
   }
 
   update(dtSec: number, nowMs: number): void {
-    this.input = this.devKeys.merge(this.source.read(nowMs));
+    if (this.paused || this.finished) return;
+    this.input = this.sourceReady ? this.source.read(nowMs) : { ...NEUTRAL_INPUT };
 
     if (this.countdown > 0) {
       this.countdown -= dtSec;
       return;
     }
-    if (this.finished) return;
 
     // 地形を先に伸ばしてから、その地形の上でランナーを進める
     const nextX = runnerXAt(this.state.elapsedSec + dtSec);
@@ -76,13 +80,108 @@ export class PlayScene implements Scene<'play'> {
       input: this.input,
       features: this.source.debugFeatures(),
     });
-    if (this.countdown > 0) drawCountdown(g, Math.ceil(this.countdown));
+    if (this.paused) drawPaused(g, this.source.kind === 'mic');
+    else if (this.countdown > 0) drawCountdown(g, Math.ceil(this.countdown));
   }
 
   exit(): void {
+    this.exited = true;
+    this.sourceReady = false;
     this.source.stop();
-    this.devKeys.stop();
+    this.closePauseMenu();
   }
+
+  onKeyDown(e: KeyboardEvent): void {
+    if (e.code === 'Escape') {
+      e.preventDefault();
+      if (this.paused) this.resume();
+      else this.pause();
+    } else if (this.paused && e.code === 'Enter') {
+      this.resume();
+    } else if (this.paused && e.code === 'KeyT') {
+      this.ctx.goTo('title', undefined);
+    }
+  }
+
+  /** タブが隠れたら自動でポーズ（戻ってきたときに勝手に進んでいないように）。 */
+  onHidden(): void {
+    this.pause();
+  }
+
+  /** ポーズ：ゲームを止め、マイクも止める（F09）。 */
+  pause(): void {
+    if (this.paused || this.finished || this.exited) return;
+    this.paused = true;
+    this.sourceReady = false;
+    this.source.stop();
+    this.openPauseMenu();
+  }
+
+  /** 再開：入力源を再開し、1秒のカウントダウンをはさむ。 */
+  resume(): void {
+    if (!this.paused || this.exited) return;
+    this.paused = false;
+    this.closePauseMenu();
+    this.countdown = Math.max(this.countdown, RESUME_COUNTDOWN_SEC);
+    this.startSource();
+  }
+
+  /** 入力源を開始する。終わる前にシーンを離れたりポーズしたりしたら、すぐ止める。 */
+  private startSource(): void {
+    this.sourceReady = false;
+    this.source.start().then(
+      () => {
+        if (this.exited || this.paused) {
+          this.source.stop();
+          return;
+        }
+        this.sourceReady = true;
+      },
+      (err: unknown) => {
+        console.error('[play] 入力の開始に失敗しました', err);
+        if (!this.exited) this.ctx.goTo('title', undefined);
+      },
+    );
+  }
+
+  private openPauseMenu(): void {
+    if (typeof document === 'undefined') return;
+    const menu = document.createElement('div');
+    menu.className = 'pause-menu';
+    menu.style.cssText =
+      'position:absolute;left:50%;top:60%;transform:translate(-50%,0);display:flex;gap:16px;';
+    const button = (label: string, onClick: () => void) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.style.cssText = 'font-size:20px;padding:10px 24px;border-radius:8px;border:0;cursor:pointer;';
+      b.addEventListener('click', onClick);
+      menu.append(b);
+    };
+    button('再開（Esc）', () => this.resume());
+    button('タイトルへ（T）', () => this.ctx.goTo('title', undefined));
+    this.ctx.ui.append(menu);
+    this.pauseMenu = menu;
+  }
+
+  private closePauseMenu(): void {
+    this.pauseMenu?.remove();
+    this.pauseMenu = null;
+  }
+}
+
+const RESUME_COUNTDOWN_SEC = 1;
+
+function drawPaused(g: CanvasRenderingContext2D, mic: boolean): void {
+  g.fillStyle = 'rgba(0,0,0,0.55)';
+  g.fillRect(0, 0, VIEW.width, VIEW.height);
+  g.fillStyle = '#fff';
+  g.font = 'bold 72px system-ui, sans-serif';
+  g.textAlign = 'center';
+  g.fillText('PAUSE', VIEW.width / 2, VIEW.height / 2 - 20);
+  g.font = '22px system-ui, sans-serif';
+  const note = mic ? '　（マイクは停止中）' : '';
+  g.fillText(`Esc / Enter: 再開　T: タイトルへ${note}`, VIEW.width / 2, VIEW.height / 2 + 30);
+  g.textAlign = 'start';
 }
 
 function drawCountdown(g: CanvasRenderingContext2D, n: number): void {
@@ -95,44 +194,3 @@ function drawCountdown(g: CanvasRenderingContext2D, n: number): void {
   g.textAlign = 'start';
 }
 
-/**
- * 【一時的】Issue #1（KeyboardInput 本実装）がマージされるまでの開発用キー入力。
- * 入力源が何も入力していない（active=false）ときだけ ↑↓/←→/Space を補う。
- * #1 マージ後に #9 で削除する。
- */
-export class DevKeys {
-  private down = new Set<string>();
-  private intensity = 0.5;
-  private pulse = false;
-  private onDown = (e: KeyboardEvent) => {
-    if (['ArrowUp', 'ArrowDown', 'Space'].includes(e.code)) e.preventDefault();
-    if (e.code === 'Space' && !e.repeat) this.pulse = true;
-    if (e.code === 'ArrowRight' || e.code === 'KeyW') this.intensity = Math.min(1, this.intensity + 0.1);
-    if (e.code === 'ArrowLeft' || e.code === 'KeyS') this.intensity = Math.max(0, this.intensity - 0.1);
-    this.down.add(e.code);
-  };
-  private onUp = (e: KeyboardEvent) => this.down.delete(e.code);
-
-  start(): void {
-    this.stop();
-    window.addEventListener('keydown', this.onDown);
-    window.addEventListener('keyup', this.onUp);
-  }
-
-  stop(): void {
-    window.removeEventListener('keydown', this.onDown);
-    window.removeEventListener('keyup', this.onUp);
-    this.down.clear();
-  }
-
-  merge(src: ControlInput): ControlInput {
-    // 入力源を優先するときも自分の pulse は必ず消費する（古い Space の二重発火を防ぐ #15）
-    const pulse = this.pulse;
-    this.pulse = false;
-    if (src.active || src.pulse) return src;
-    const up = this.down.has('ArrowUp');
-    const dn = this.down.has('ArrowDown');
-    const slope = up === dn ? 0 : up ? 1 : -1;
-    return { slope, intensity: this.intensity, pulse, active: slope !== 0 || pulse };
-  }
-}
