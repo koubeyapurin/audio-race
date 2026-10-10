@@ -173,11 +173,10 @@ export class PlayScene implements Scene<'play'> {
           return;
         }
         if (this.stoppedWhileStarting) {
-          // 途中で stop されていた：古いストリームが残らないよう止める。
-          // ここはタップの外なので、iOS ではマイクを開き直せないことがある。
-          // ポーズ画面に戻して、もう一度 ▶ を押してもらう（その操作の中で開き直す）
+          // 途中で stop されていた：入力源の実装によっては古いストリームが残るので、止めてやり直す
+          // TODO(#34): ここはタップの外。iOS で開き直せない場合は、ポーズ画面に戻して ▶ を押してもらう案（実機で確認してから）
           this.source.stop();
-          this.pause();
+          this.startSource();
           return;
         }
         this.sourceReady = true;

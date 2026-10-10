@@ -118,11 +118,6 @@ describe('PlayScene のライフサイクル（#9）', () => {
       pending.shift()!();
       await flush();
     }
-    // 途中で止められていたので、ポーズ画面に戻ってストリームは0本（iOS ではタップの外で開き直せないため）
-    expect(live).toBe(0);
-    scene.onKeyDown(key('Escape')); // もう一度再開
-    pending.shift()!();
-    await flush();
     expect(live).toBe(1); // 動作中は1本
     scene.exit();
     expect(live).toBe(0); // 終了後は0本
