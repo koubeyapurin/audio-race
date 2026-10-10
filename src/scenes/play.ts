@@ -126,6 +126,7 @@ export class PlayScene implements Scene<'play'> {
       if (this.paused) this.resume();
       else this.pause();
     } else if (this.paused && e.code === 'Enter') {
+      e.preventDefault();
       this.resume();
     } else if (this.paused && e.code === 'KeyT') {
       this.ctx.goTo('title', undefined);
@@ -172,9 +173,11 @@ export class PlayScene implements Scene<'play'> {
           return;
         }
         if (this.stoppedWhileStarting) {
-          // 途中で stop されていた：入力源の実装によっては古いストリームが残るので、止めてやり直す
+          // 途中で stop されていた：古いストリームが残らないよう止める。
+          // ここはタップの外なので、iOS ではマイクを開き直せないことがある。
+          // ポーズ画面に戻して、もう一度 ▶ を押してもらう（その操作の中で開き直す）
           this.source.stop();
-          this.startSource();
+          this.pause();
           return;
         }
         this.sourceReady = true;
@@ -221,7 +224,10 @@ export class PlayScene implements Scene<'play'> {
       'position:absolute;top:max(8px, env(safe-area-inset-top));right:21%;' +
       'width:44px;height:44px;font-size:20px;line-height:1;border-radius:22px;border:2px solid rgba(255,255,255,.6);' +
       'background:rgba(16,19,28,.7);color:#fff;cursor:pointer;touch-action:manipulation;';
+    // マウスで押してもフォーカスを残さない（残ると、ポーズ中の Enter でボタンも押されてしまう）
+    b.addEventListener('mousedown', (e) => e.preventDefault());
     b.addEventListener('click', () => {
+      b.blur();
       if (this.paused) this.resume();
       else this.pause();
     });

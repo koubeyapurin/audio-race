@@ -118,6 +118,11 @@ describe('PlayScene のライフサイクル（#9）', () => {
       pending.shift()!();
       await flush();
     }
+    // 途中で止められていたので、ポーズ画面に戻ってストリームは0本（iOS ではタップの外で開き直せないため）
+    expect(live).toBe(0);
+    scene.onKeyDown(key('Escape')); // もう一度再開
+    pending.shift()!();
+    await flush();
     expect(live).toBe(1); // 動作中は1本
     scene.exit();
     expect(live).toBe(0); // 終了後は0本
@@ -175,7 +180,7 @@ type FakeEl = {
   attrs: Record<string, string>; style: { cssText: string }; removed: boolean;
   listeners: Record<string, (() => void)[]>;
   addEventListener(t: string, f: () => void): void; removeEventListener(): void;
-  setAttribute(k: string, v: string): void; append(...c: FakeEl[]): void; remove(): void; click(): void;
+  setAttribute(k: string, v: string): void; append(...c: FakeEl[]): void; remove(): void; click(): void; blur(): void;
 };
 function fakeDom() {
   const make = (tag: string): FakeEl => {
@@ -187,6 +192,7 @@ function fakeDom() {
       append: (...c) => { el.children.push(...c); },
       remove: () => { el.removed = true; },
       click: () => { for (const f of el.listeners.click ?? []) f(); },
+      blur: () => {},
     };
     return el;
   };
@@ -257,6 +263,21 @@ describe('一時停止ボタン（#34）', () => {
     scene.exit();
     expect(dom.live()).toHaveLength(0);
     expect(src.running).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
+  it('ボタンはクリックでフォーカスを残さず、ポーズ中の Enter は既定の動作を止める', async () => {
+    const { dom, src, scene } = sceneWithDom();
+    src.finishStart();
+    await flush();
+    let blurred = 0;
+    (dom.pauseButton() as unknown as { blur: () => void }).blur = () => { blurred++; };
+    dom.pauseButton().click();
+    expect(blurred).toBe(1);
+    let prevented = 0;
+    scene.onKeyDown({ code: 'Enter', preventDefault: () => { prevented++; } } as KeyboardEvent);
+    expect(prevented).toBe(1);
+    expect(dom.pauseButton().attrs['aria-label']).toBe('一時停止');
     vi.unstubAllGlobals();
   });
 
