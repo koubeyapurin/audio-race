@@ -4,6 +4,7 @@ import { GAME, TERRAIN, VIEW } from '../core/config';
 import { TerrainGenerator } from '../terrain/generator';
 import { drawWorld } from '../render/world';
 import { drawHud } from '../render/hud';
+import { Effects } from '../render/effects';
 import { buildStage, GOAL_X, START_X } from '../game/stage';
 import { createGameState, isInvulnerable, runnerXAt, stepGame, toResult } from '../game/rules';
 
@@ -18,6 +19,7 @@ export class PlayScene implements Scene<'play'> {
   private countdown: number = GAME.countdownSec;
   private items: StageItem[] = buildStage();
   private state: GameState = createGameState();
+  private effects = new Effects();
   private finished = false;
   private exited = false;
   /** ポーズ中に入力源（マイク）を止めている間、ゲームを進めない。 */
@@ -50,10 +52,20 @@ export class PlayScene implements Scene<'play'> {
     // 地形を先に伸ばしてから、その地形の上でランナーを進める
     const nextX = runnerXAt(this.state.elapsedSec + dtSec);
     this.terrain.advance(this.input, nextX + LOOKAHEAD_PX, dtSec);
-    this.state = stepGame(this.state, dtSec, {
+    const { state, events } = stepGame(this.state, dtSec, {
       heightAt: (x) => this.terrain.heightAt(x),
       items: this.items,
-    }).state;
+    });
+    this.state = state;
+    for (const e of events) {
+      if (e.type === 'collect') {
+        const item = this.items.find((i) => i.id === e.itemId);
+        if (item) this.effects.collect(item.x, item.y, GAME.notePoints);
+      } else if (e.type === 'hit') {
+        this.effects.hit();
+      }
+    }
+    this.effects.update(dtSec);
 
     if (this.state.phase === 'cleared' || this.state.phase === 'gameover') {
       this.finished = true;
@@ -64,10 +76,14 @@ export class PlayScene implements Scene<'play'> {
   render(g: CanvasRenderingContext2D): void {
     const s = this.state;
     const runner = { x: s.runner.x, y: this.terrain.heightAt(s.runner.x) };
+    const cameraX = s.runner.x - GAME.runnerScreenX;
+    const { dx, dy } = this.effects.shakeOffset();
+    g.save();
+    g.translate(dx, dy);
     drawWorld(g, {
       terrain: this.terrain,
       runner,
-      cameraX: s.runner.x - GAME.runnerScreenX,
+      cameraX,
       frontierX: this.terrain.generatedUntil,
       stageLength: GOAL_X,
       input: this.input,
@@ -76,6 +92,8 @@ export class PlayScene implements Scene<'play'> {
       collectedIds: s.collectedIds,
       invulnerable: isInvulnerable(s),
     });
+    this.effects.draw(g, cameraX);
+    g.restore();
     drawHud(g, {
       mode: this.source.kind,
       score: s.score,
