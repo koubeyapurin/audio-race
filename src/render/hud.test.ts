@@ -140,6 +140,28 @@ describe('HUD', () => {
     c.clear(); drawHud(c.g, model({ mode, progress: 0 })); expect(c.texts()).toContain('操作ガイド');
   });
 
+  it('マイク開始ガイドに先行地形・基準音・短いタンを表示し、キーのガイドは維持する', () => {
+    const c = canvas(); drawHud(c.g, model({ mode: 'mic', progress: 0 }));
+    expect(c.texts()).toEqual(expect.arrayContaining(['声は黄色い線の先の地形へ', '約1.5秒先の地形を操作',
+      '基準の高さ＝平ら', 'タンは基準の高さで短く']));
+    c.clear(); drawHud(c.g, model({ progress: 0 })); expect(c.texts()).toContain('Space：小さな波');
+    expect(c.texts()).not.toContain('タンは基準の高さで短く');
+  });
+
+  it('コンパクトHUDでも最初の6秒はマイクのヒントを順に出し、波の検出を隠さない', () => {
+    const c = canvas(); c.styles.canvas = { clientWidth: 390 };
+    for (const [elapsed, hint] of [[0, '声は黄色い線の先へ（約1.5秒先）'], [2, '基準の高さ＝平ら'],
+      [4, 'タンは基準の高さで短く']] as const) {
+      c.clear(); drawHud(c.g, model({ mode: 'mic', progress: elapsed / GAME.durationSec }));
+      expect(c.texts()).toContain(hint);
+    }
+    c.clear(); drawHud(c.g, model({ mode: 'mic', progress: 6 / GAME.durationSec }));
+    expect(c.texts()).toContain('平らに戻ります'); expect(c.texts()).not.toContain('タンは基準の高さで短く');
+    c.clear(); drawHud(c.g, model({ mode: 'mic', progress: 0, input: { ...NEUTRAL_INPUT, pulse: true } }));
+    expect(c.texts()).toContain('波：検出！');
+    c.clear(); drawHud(c.g, model({ progress: 0 })); expect(c.texts()).toContain('平らに戻ります');
+  });
+
   it('不正値を表示・描画へ広げず、画面内・予告表示を避けて収め、モデルを変更しない', () => {
     const c = canvas();
     const hud = Object.freeze(model({ score: Infinity, lives: -5, progress: NaN, remainingSec: -10,
