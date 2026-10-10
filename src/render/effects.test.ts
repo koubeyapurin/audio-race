@@ -5,7 +5,11 @@ describe('Effects', () => {
   it('被弾の揺れは時間がたつと止まる', () => {
     const fx = new Effects();
     fx.hit();
-    expect(fx.shakeOffset()).not.toEqual({ dx: 0, dy: 0 });
+    fx.update(1 / 60);
+    const o = fx.shakeOffset();
+    expect(o).not.toEqual({ dx: 0, dy: 0 });
+    // update を呼ばない間（ポーズ中）は揺れが変わらない
+    expect(fx.shakeOffset()).toBe(o);
     for (let i = 0; i < 60; i++) fx.update(1 / 60);
     expect(fx.shakeOffset()).toEqual({ dx: 0, dy: 0 });
   });

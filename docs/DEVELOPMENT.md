@@ -4,7 +4,7 @@
 | レーン | 担当 | 触るファイル |
 |---|---|---|
 | A: 入力・画面 | @Gaku-Fujioka | `src/input/` `src/scenes/title.ts` `micSetup.ts` `result.ts` `src/render/hud.ts` |
-| B: 地形・ゲーム | @koubeyapurin | `src/terrain/` `src/game/` `src/render/world.ts` `src/scenes/play.ts` |
+| B: 地形・ゲーム | @koubeyapurin | `src/terrain/` `src/game/` `src/render/world.ts` `src/render/effects.ts` `src/scenes/play.ts` |
 | 共有 | 両者 | `src/core/*` `src/main.ts` `package.json` `.github/` `docs/` |
 
 - 仕事は GitHub Issue で振り分ける。Issue に書かれた「触ってよいファイル」以外は変更しない。

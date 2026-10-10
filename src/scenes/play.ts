@@ -94,6 +94,7 @@ export class PlayScene implements Scene<'play'> {
     });
     this.effects.draw(g, cameraX);
     g.restore();
+    this.effects.drawFlash(g);
     drawHud(g, {
       mode: this.source.kind,
       score: s.score,

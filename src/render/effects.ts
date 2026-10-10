@@ -30,6 +30,8 @@ export class Effects {
   private popups: Popup[] = [];
   private shake = 0;
   private flash = 0;
+  /** 今フレームの揺れ。update でだけ決めるので、ポーズ中は動かない。 */
+  private offset = { dx: 0, dy: 0 };
 
   collect(x: number, y: number, points: number): void {
     for (let i = 0; i < 14; i++) {
@@ -67,13 +69,13 @@ export class Effects {
     this.popups = this.popups.filter((p) => p.life > 0);
     this.shake = Math.max(0, this.shake - dtSec);
     this.flash = Math.max(0, this.flash - dtSec);
+    const k = (this.shake / SHAKE_SEC) * 10;
+    this.offset = this.shake > 0 ? { dx: (Math.random() * 2 - 1) * k, dy: (Math.random() * 2 - 1) * k } : { dx: 0, dy: 0 };
   }
 
   /** 画面の揺れ（px）。描画の前に translate する。 */
   shakeOffset(): { dx: number; dy: number } {
-    if (this.shake <= 0) return { dx: 0, dy: 0 };
-    const k = (this.shake / SHAKE_SEC) * 10;
-    return { dx: (Math.random() * 2 - 1) * k, dy: (Math.random() * 2 - 1) * k };
+    return this.offset;
   }
 
   draw(g: CanvasRenderingContext2D, cameraX: number): void {
@@ -93,7 +95,10 @@ export class Effects {
     }
     g.textAlign = 'start';
     g.globalAlpha = 1;
+  }
 
+  /** 被弾のフラッシュ。揺れの外（画面全体）に描く。 */
+  drawFlash(g: CanvasRenderingContext2D): void {
     if (this.flash > 0) {
       g.fillStyle = `rgba(226,71,91,${(this.flash / FLASH_SEC) * 0.35})`;
       g.fillRect(0, 0, VIEW.width, VIEW.height);
