@@ -1,5 +1,5 @@
 import type { ControlInput, HudModel } from '../core/types';
-import { GAME } from '../core/config';
+import { GAME, TERRAIN } from '../core/config';
 import { readBestScore, scoreRecordRevision } from '../scenes/resultRecords';
 import type { BestScore } from '../scenes/resultRecords';
 
@@ -101,10 +101,11 @@ export function drawHud(g: CanvasRenderingContext2D, hud: HudModel): void {
 
   // 進捗から開始後の経過を求めるので、リトライでも独立したタイマーは不要。
   if (progress * GAME.durationSec < HINT_SECONDS) {
-    panel(g, 24, 380, 252, 140);
+    panel(g, 24, 380, 252, hud.mode === 'mic' ? 206 : 140);
     text(g, '操作ガイド', 44, 408, 18, COLORS.text, 212);
     const hints = hud.mode === 'mic'
-      ? ['高い声：上り / 低い声：下り', '大きい声ほど強く変わる', '「タン」で小さな波', 'Escでポーズ・マイク停止']
+      ? ['高い声：上り / 低い声：下り', '基準の高さ＝平ら', '声は黄色い線の先の地形へ',
+        `約${TERRAIN.lookaheadSec}秒先の地形を操作`, '大きい声ほど強く変わる', '「タン」で小さな波', 'タンは基準の高さで短く']
       : ['↑ / ↓：上り / 下り', '← / →・W / S：強さを調整', 'Space：小さな波', 'Esc：ポーズ / 再開'];
     hints.forEach((hint, i) => text(g, hint, 44, 434 + i * 22, 14, COLORS.muted, 212));
   }
@@ -123,7 +124,11 @@ function drawCompactHud(g: CanvasRenderingContext2D, hud: HudModel, slope: numbe
   text(g, `${direction} ${Math.round(Math.abs(slope) * 100)}%`, 36, 103, 34,
     slope < 0 ? COLORS.down : COLORS.up, 340);
   text(g, `強さ ${Math.round(intensity * 100)}%`, 400, 103, 34, COLORS.text, 270);
-  text(g, glowing ? '波：検出！' : hud.input.active ? '前方の地形に反映' : '平らに戻ります',
+  const elapsed = progress * GAME.durationSec;
+  const hint = hud.mode === 'mic' && elapsed < HINT_SECONDS
+    ? [`声は黄色い線の先へ（約${TERRAIN.lookaheadSec}秒先）`, '基準の高さ＝平ら', 'タンは基準の高さで短く'][Math.min(2, Math.floor(elapsed / 2))]
+    : null;
+  text(g, glowing ? '波：検出！' : hint ?? (hud.input.active ? '前方の地形に反映' : '平らに戻ります'),
     700, 103, 32, glowing ? COLORS.rhythm : COLORS.muted, 540);
   bar(g, 36, 110, 1208, 5, progress, COLORS.up);
 }

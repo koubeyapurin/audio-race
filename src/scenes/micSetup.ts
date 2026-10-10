@@ -1,10 +1,13 @@
-import type { AudioFeatures, Scene, SceneContext } from '../core/types';
+import type { AudioFeatures, ControlInput, Scene, SceneContext } from '../core/types';
 import { MicUnavailableError } from '../core/types';
+import { TERRAIN } from '../core/config';
 import { KeyboardInput } from '../input/keyboard';
 import { MicInput } from '../input/mic/micInput';
+import { FEATURE_SETTINGS } from '../input/mic/features';
 import { estimateBasePitch, estimateNoiseFloor, estimatePitchLimit, MAPPING_SETTINGS } from '../input/mic/mapper';
 
 type Phase = 'idle' | 'opening' | 'ready' | 'noise' | 'pitch' | 'low' | 'high' | 'calibrated';
+const PRACTICE_HOLD_MS = 250;
 interface Controls {
   status: HTMLElement;
   allow: HTMLButtonElement;
@@ -25,6 +28,13 @@ interface Controls {
   high: HTMLButtonElement;
   resetRange: HTMLButtonElement;
   range: HTMLOutputElement;
+  skipRange: HTMLButtonElement;
+  upCheck: HTMLElement;
+  downCheck: HTMLElement;
+  practiceStatus: HTMLElement;
+  diagnosticsPanel: HTMLDetailsElement;
+  diagnostics: HTMLTextAreaElement;
+  freezeDiagnostics: HTMLButtonElement;
 }
 
 /** 許可・雑音・基準音を順に準備する。更新は main.ts のループからだけ行う。 */
@@ -32,7 +42,6 @@ export class MicSetupScene implements Scene<'micSetup'> {
   private ctx: SceneContext | null = null;
   private panel: HTMLElement | null = null;
   private controls: Controls | null = null;
-  private readonly mic = new MicInput();
   private phase: Phase = 'idle';
   private noiseDone = false;
   private baseDone = false;
@@ -40,6 +49,12 @@ export class MicSetupScene implements Scene<'micSetup'> {
   private measuringSince: number | null = null;
   private requestId = 0;
   private leaving = false;
+  private readonly practiced = { up: false, down: false };
+  private practiceDirection: 'up' | 'down' | null = null;
+  private practiceSince: number | null = null;
+  private diagnosticsFrozen = false;
+
+  constructor(private readonly mic = new MicInput()) {}
 
   enter(ctx: SceneContext): void {
     this.panel?.remove();
@@ -55,6 +70,7 @@ export class MicSetupScene implements Scene<'micSetup'> {
           justify-content:safe center; gap:clamp(6px,1.5vh,14px); padding:3%; box-sizing:border-box;
           overflow:auto; text-align:center; color:#edf4ff; font-size:clamp(12px,min(1.4vw,2.5vh),18px); }
         .mic-setup h1 { margin:0; font-size:clamp(24px,min(3.5vw,6vh),44px); }
+        .mic-setup > * { flex-shrink:0; }
         .mic-setup p { margin:0; color:#c3cee4; }
         .mic-setup .steps, .mic-setup .metrics, .mic-setup .actions { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
         .mic-setup .metrics { width:min(90%,800px); padding:12px; box-sizing:border-box;
@@ -72,9 +88,19 @@ export class MicSetupScene implements Scene<'micSetup'> {
         .mic-setup [data-status] { min-height:2.5em; max-width:90%; }
         .mic-setup progress { width:min(70%,650px); }
         .mic-setup .note { font-size:.85em; }
-        .mic-setup details { max-width:90%; }
-        .mic-setup summary { cursor:pointer; }
-        .mic-setup details .steps { margin:8px 0; }
+        .mic-setup .voice-range { width:min(90%,800px); box-sizing:border-box;
+          border:1px solid #59708b; border-radius:12px; padding:12px; background:#192d42; }
+        .mic-setup .voice-range h2 { margin:0 0 8px; font-size:1.1em; }
+        .mic-setup .voice-range .steps { margin:8px 0; }
+        .mic-setup .practice-checks { display:flex; flex-wrap:wrap; justify-content:center;
+          gap:12px; margin:8px 0; color:#c3cee4; }
+        .mic-setup .practice-checks [data-complete="true"] { color:#a6edcf; font-weight:700; }
+        .mic-setup [data-practice-status] { margin-top:8px; }
+        .mic-setup .diagnostics { width:min(90%,800px); text-align:left; }
+        .mic-setup .diagnostics summary { cursor:pointer; }
+        .mic-setup .diagnostics textarea { width:100%; box-sizing:border-box; margin:8px 0;
+          padding:8px; color:#edf4ff; background:#192d42; border:1px solid #59708b; border-radius:8px;
+          font:inherit; resize:vertical; }
         @media (max-width:600px), (max-height:440px) {
           .mic-setup { justify-content:flex-start; gap:6px; }
           .mic-setup button { padding:6px 10px; }
@@ -107,8 +133,8 @@ export class MicSetupScene implements Scene<'micSetup'> {
         </select>
       </label>
       <output data-response aria-label="声の高さによる操作プレビュー">基準音の測定後、上り・下りを試せます</output>
-      <details>
-        <summary>下り・上りが足りないとき：自分の声域に合わせる（任意）</summary>
+      <section class="voice-range" aria-labelledby="voice-range-title">
+        <h2 id="voice-range-title">④ 自分の声域に合わせる（おすすめ・スキップ可）</h2>
         <p class="note">楽に出せる低い声・高い声を2秒ずつ測り、その高さを最大の操作にします。片方だけでも調整できます。</p>
         <div class="steps">
           <button type="button" data-low>低い「あー」を2秒測る</button>
@@ -117,8 +143,21 @@ export class MicSetupScene implements Scene<'micSetup'> {
         </div>
         <output data-range></output>
         <p class="note">100%は声の高さによる操作量です。坂の強さは声の大きさでも変わります。</p>
+        <p class="note">高い「あー」・低い「あー」を少し伸ばし、上り・下り100%を試しましょう。無理に声を出す必要はありません。</p>
+        <div class="practice-checks" aria-label="上下操作の練習結果">
+          <span data-up-check></span><span data-down-check></span>
+        </div>
+        <p data-practice-status role="status" aria-live="polite"></p>
+        <button type="button" data-skip-range>声域合わせ・練習をスキップして遊ぶ</button>
+      </section>
+      <details class="diagnostics" data-diagnostics-panel>
+        <summary>反応しないとき：音程の判定を確認</summary>
+        <p class="note">反応しない声を出したまま「いまの値を固定」を押してください。下の数値は選択してコピーできます。最低音・最高音の外でも、音程を検出できれば最大入力になります。</p>
+        <textarea data-diagnostics rows="10" readonly aria-label="音程判定の確認値"></textarea>
+        <button type="button" data-freeze-diagnostics aria-pressed="false">いまの値を固定</button>
       </details>
-      <button type="button" class="primary" data-play>④ マイクでスタート</button>
+      <p class="note">声は黄色い線の先、約${TERRAIN.lookaheadSec}秒先の地形になります。基準の高さは平ら。「タン」は基準の高さで短く。</p>
+      <button type="button" class="primary" data-play>⑤ マイクでスタート</button>
       <div class="actions">
         <button type="button" data-keyboard>ボタン・キーで遊ぶ（K）</button>
         <button type="button" data-title>タイトルへ（Esc）</button>
@@ -134,11 +173,18 @@ export class MicSetupScene implements Scene<'micSetup'> {
       progress: find('[data-progress]'), timer: find('[data-timer]'),
       sensitivity: find('[data-sensitivity]'), response: find('[data-response]'),
       low: find('[data-low]'), high: find('[data-high]'), resetRange: find('[data-reset-range]'), range: find('[data-range]'),
+      skipRange: find('[data-skip-range]'), upCheck: find('[data-up-check]'),
+      downCheck: find('[data-down-check]'), practiceStatus: find('[data-practice-status]'),
+      diagnosticsPanel: find('[data-diagnostics-panel]'), diagnostics: find('[data-diagnostics]'),
+      freezeDiagnostics: find('[data-freeze-diagnostics]'),
     };
     this.controls.sensitivity.value = this.mic.pitchSensitivity;
     this.controls.sensitivity.addEventListener('change', () => {
       const value = this.controls?.sensitivity.value;
-      if (value === 'standard' || value === 'sensitive') this.mic.setPitchSensitivity(value);
+      if (value === 'standard' || value === 'sensitive') {
+        this.mic.setPitchSensitivity(value);
+        this.resetPractice();
+      }
     });
     this.controls.allow.addEventListener('click', () => { void this.allowMic(); });
     this.controls.stop.addEventListener('click', () => this.stopMic('マイクを停止しました。再度許可ボタンから準備できます。'));
@@ -149,10 +195,18 @@ export class MicSetupScene implements Scene<'micSetup'> {
     this.controls.resetRange.addEventListener('click', () => {
       if (this.measuring || !this.baseDone || this.leaving) return;
       this.mic.clearPitchRange();
+      this.resetPractice();
       this.refreshControls();
       this.setStatus('声域の調整を解除しました。選択中の感度で反応します。');
     });
     this.controls.play.addEventListener('click', () => this.navigate('mic'));
+    this.controls.skipRange.addEventListener('click', () => this.navigate('mic'));
+    this.controls.freezeDiagnostics.addEventListener('click', () => {
+      if (!this.controls || !this.mic.running) return;
+      this.diagnosticsFrozen = !this.diagnosticsFrozen;
+      this.controls.freezeDiagnostics.textContent = this.diagnosticsFrozen ? '値の更新を再開' : 'いまの値を固定';
+      this.controls.freezeDiagnostics.setAttribute('aria-pressed', String(this.diagnosticsFrozen));
+    });
     find<HTMLButtonElement>('[data-keyboard]').addEventListener('click', () => this.navigate('keyboard'));
     find<HTMLButtonElement>('[data-title]').addEventListener('click', () => this.navigate('title'));
     ctx.ui.append(panel);
@@ -172,6 +226,7 @@ export class MicSetupScene implements Scene<'micSetup'> {
       this.controls.level.value = features.rms;
       this.controls.rms.value = features.rms.toFixed(4);
       this.controls.pitch.value = features.pitchHz === null ? '—' : `${features.pitchHz.toFixed(1)} Hz`;
+      this.updateDiagnostics(input, features);
       if (this.baseDone) {
         if (!input.active) {
           this.controls.response.value = features.rms <= this.mic.calibration.noiseFloorRms
@@ -183,6 +238,7 @@ export class MicSetupScene implements Scene<'micSetup'> {
           this.controls.response.value = `${direction} ${Math.round(Math.abs(input.slope) * 100)}%（基準から${semitones >= 0 ? '+' : ''}${semitones.toFixed(2)}半音）`;
         }
       }
+      this.updatePractice(input, nowMs);
       if (!this.measuring) return;
       this.measuringSince ??= nowMs;
       this.samples.push(features);
@@ -207,6 +263,7 @@ export class MicSetupScene implements Scene<'micSetup'> {
     this.requestId++;
     this.mic.stop();
     this.samples = [];
+    this.diagnosticsFrozen = false;
     this.panel?.remove();
     this.panel = null;
     this.controls = null;
@@ -255,6 +312,7 @@ export class MicSetupScene implements Scene<'micSetup'> {
     }
     if (phase === 'noise') this.noiseDone = false;
     this.phase = phase;
+    this.resetPractice(phase === 'low' ? 'down' : phase === 'high' ? 'up' : undefined);
     this.samples = [];
     this.measuringSince = null;
     this.setStatus(phase === 'noise' ? 'そのまま2秒間、声を出さずにお待ちください。'
@@ -277,7 +335,7 @@ export class MicSetupScene implements Scene<'micSetup'> {
         this.mic.setCalibration(calibration);
         this.baseDone = true;
         this.phase = 'calibrated';
-        this.setStatus('準備できました！ 声の高さを変えてみてから、④ でスタートできます。');
+        this.setStatus('基準音を測定しました。④で声域を合わせ、上り・下りを練習しましょう。スキップして⑤から始めることもできます。');
       } else if (this.phase === 'low' || this.phase === 'high') {
         const range = this.mic.pitchRange;
         const pitch = estimatePitchLimit(this.samples, calibration, this.phase);
@@ -302,12 +360,17 @@ export class MicSetupScene implements Scene<'micSetup'> {
     this.phase = 'idle';
     this.noiseDone = false;
     this.baseDone = false;
+    this.resetPractice();
+    this.diagnosticsFrozen = false;
     this.samples = [];
     this.measuringSince = null;
     if (this.controls) {
       this.controls.level.value = 0;
       this.controls.rms.value = '0.0000';
       this.controls.pitch.value = '—';
+      this.controls.diagnostics.value = 'マイク停止中。許可してこの欄を開くと、現在の判定値を表示します。';
+      this.controls.freezeDiagnostics.textContent = 'いまの値を固定';
+      this.controls.freezeDiagnostics.setAttribute('aria-pressed', 'false');
     }
     this.setStatus(message);
     this.refreshControls();
@@ -319,9 +382,11 @@ export class MicSetupScene implements Scene<'micSetup'> {
     const measuring = this.measuring;
     controls.allow.disabled = this.phase !== 'idle';
     controls.stop.disabled = this.phase === 'idle';
+    controls.freezeDiagnostics.disabled = !this.mic.running;
     controls.noise.disabled = !this.mic.running || measuring;
     controls.base.disabled = !this.mic.running || !this.noiseDone || measuring;
     controls.play.disabled = !this.mic.running || !this.baseDone || this.phase !== 'calibrated';
+    controls.skipRange.disabled = controls.play.disabled;
     controls.low.disabled = controls.high.disabled = !this.mic.running || !this.baseDone || measuring;
     const range = this.mic.pitchRange;
     controls.resetRange.disabled = measuring || !this.baseDone || (range.lowPitchHz === null && range.highPitchHz === null);
@@ -333,9 +398,74 @@ export class MicSetupScene implements Scene<'micSetup'> {
     controls.progress.value = 0;
     controls.timer.value = '';
     if (!this.baseDone) controls.response.value = '基準音の測定後、上り・下りを試せます';
+    this.refreshPractice();
   }
 
   private setStatus(message: string): void { if (this.controls) this.controls.status.textContent = message; }
+
+  private updateDiagnostics(input: Readonly<ControlInput>, features: Readonly<AudioFeatures>): void {
+    const controls = this.controls;
+    // 開いたときだけ数値を更新する。固定は表示だけで、操作やマイク解析を止めない。
+    if (!controls?.diagnosticsPanel.open || this.diagnosticsFrozen) return;
+    const calibration = this.mic.calibration;
+    const range = this.mic.pitchRange;
+    const pitchLabel = (pitch: number | null) => pitch !== null && Number.isFinite(pitch) ? `${pitch.toFixed(1)} Hz` : '未検出';
+    const text = [
+      `入力RMS（平滑化後）: ${features.rms.toFixed(4)}`,
+      `無音しきい値: ${calibration.noiseFloorRms.toFixed(4)}`,
+      `音程: ${pitchLabel(features.pitchHz)}`,
+      `音程の信頼度: ${(features.clarity * 100).toFixed(1)}%（判定は${FEATURE_SETTINGS.minClarity * 100}%以上）`,
+      `解析対象の音程: ${FEATURE_SETTINGS.minPitchHz}〜${FEATURE_SETTINGS.maxPitchHz} Hz`,
+      `基準音: ${this.baseDone ? pitchLabel(calibration.basePitchHz) : '未測定'}`,
+      `下り100%の声: ${range.lowPitchHz === null ? '未設定（感度に従う）' : pitchLabel(range.lowPitchHz)}`,
+      `上り100%の声: ${range.highPitchHz === null ? '未設定（感度に従う）' : pitchLabel(range.highPitchHz)}`,
+      `操作: ${!this.baseDone ? '基準音未測定' : !input.active ? '0%（音程入力なし）'
+        : `${input.slope < 0 ? '下り' : input.slope > 0 ? '上り' : '平坦'} ${Math.round(Math.abs(input.slope) * 100)}%`}`,
+    ].join('\n');
+    if (controls.diagnostics.value !== text) controls.diagnostics.value = text;
+  }
+
+  private resetPractice(direction?: 'up' | 'down'): void {
+    if (direction) this.practiced[direction] = false;
+    else { this.practiced.up = false; this.practiced.down = false; }
+    this.practiceDirection = null;
+    this.practiceSince = null;
+    this.refreshPractice();
+  }
+
+  private updatePractice(input: Readonly<ControlInput>, nowMs: number): void {
+    const direction = this.phase === 'calibrated' && input.active && Number.isFinite(input.slope)
+      ? input.slope >= 0.995 ? 'up' : input.slope <= -0.995 ? 'down' : null : null;
+    if (!direction || !Number.isFinite(nowMs)) {
+      this.practiceDirection = null;
+      this.practiceSince = null;
+      return;
+    }
+    if (direction !== this.practiceDirection || this.practiceSince === null || nowMs < this.practiceSince) {
+      this.practiceDirection = direction;
+      this.practiceSince = nowMs;
+    }
+    // 瞬間的な誤検出で「できた」にせず、表示の練習確認だけを250ms待つ。操作入力は遅らせない。
+    if (!this.practiced[direction] && nowMs - this.practiceSince >= PRACTICE_HOLD_MS) {
+      this.practiced[direction] = true;
+      this.refreshPractice();
+    }
+  }
+
+  private refreshPractice(): void {
+    const controls = this.controls;
+    if (!controls) return;
+    for (const direction of ['up', 'down'] as const) {
+      const node = direction === 'up' ? controls.upCheck : controls.downCheck;
+      const done = this.practiced[direction];
+      node.textContent = `${done ? '✓' : '○'} ${direction === 'up' ? '↑ 上り' : '↓ 下り'}100%：${done ? 'できました' : 'これから'}`;
+      node.setAttribute('data-complete', String(done));
+    }
+    controls.practiceStatus.textContent = !this.baseDone ? '①〜③を終えると、声域合わせと上下の練習を試せます。'
+      : this.practiced.up && this.practiced.down
+      ? '準備OK！ 上り・下りの両方を操れました。⑤でスタートできます。'
+      : '両方を試せると準備OK。届かない向きは声域を測ってみましょう。練習はスキップできます。';
+  }
 
   private navigate(destination: 'mic' | 'keyboard' | 'title'): void {
     if (this.leaving || !this.ctx) return;
