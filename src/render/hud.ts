@@ -1,5 +1,7 @@
 import type { ControlInput, HudModel } from '../core/types';
 import { GAME } from '../core/config';
+import { readBestScore, scoreRecordRevision } from '../scenes/resultRecords';
+import type { BestScore } from '../scenes/resultRecords';
 
 const COLORS = {
   panel: 'rgba(12,24,40,0.9)', border: '#526782', text: '#edf4ff', muted: '#b4c4da',
@@ -10,6 +12,7 @@ const HINT_SECONDS = 6;
 interface PulseState {
   untilMs: number; wasPulse: boolean; lastInput: ControlInput | null;
   progress: number; mode: HudModel['mode'];
+  record: BestScore; recordRevision: number; recordLabel: string;
 }
 const pulses = new WeakMap<CanvasRenderingContext2D, PulseState>();
 
@@ -24,8 +27,15 @@ export function drawHud(g: CanvasRenderingContext2D, hud: HudModel): void {
   const nowMs = performance.now();
   let pulse = pulses.get(g);
   if (!pulse || progress < pulse.progress || hud.mode !== pulse.mode) {
-    pulse = { untilMs: -Infinity, wasPulse: false, lastInput: null, progress, mode: hud.mode };
+    const record = readBestScore(hud.mode);
+    pulse = { untilMs: -Infinity, wasPulse: false, lastInput: null, progress, mode: hud.mode,
+      record, recordLabel: bestRecordLabel(record), recordRevision: scoreRecordRevision() };
     pulses.set(g, pulse);
+  }
+  if (pulse.recordRevision !== scoreRecordRevision()) {
+    pulse.record = readBestScore(hud.mode);
+    pulse.recordLabel = bestRecordLabel(pulse.record);
+    pulse.recordRevision = scoreRecordRevision();
   }
   if (hud.input.pulse && (!pulse.wasPulse || hud.input !== pulse.lastInput)) pulse.untilMs = nowMs + PULSE_VISIBLE_MS;
   pulse.wasPulse = hud.input.pulse;
@@ -50,6 +60,13 @@ export function drawHud(g: CanvasRenderingContext2D, hud: HudModel): void {
   text(g, hud.mode === 'mic' ? 'マイク操作' : 'キー操作', 592, 63, 18, COLORS.up, 100);
   bar(g, 44, 91, 440, 10, progress, COLORS.up);
   text(g, `進捗 ${Math.round(progress * 100)}% / 残り ${Math.round((1 - progress) * 100)}%`, 500, 102, 14, COLORS.muted, 192);
+
+  // 生成ラインの説明（x≈778）を避け、右上に過去の記録を表示する。
+  panel(g, 1040, 18, 216, 100);
+  text(g, hud.mode === 'mic' ? 'マイクの自己ベスト' : 'キー操作の自己ベスト', 1056, 42, 16, COLORS.muted, 184);
+  const best = pulse.record.best;
+  text(g, pulse.recordLabel, 1056, 74, best === null ? 20 : 26, COLORS.rhythm, 184);
+  text(g, 'このブラウザの記録', 1056, 102, 14, COLORS.muted, 184);
 
   panel(g, 24, 132, 252, 232);
   text(g, '地形の操作', 44, 160, 18, COLORS.text, 212);
@@ -90,6 +107,10 @@ function inputStatus(mode: HudModel['mode'], input: Readonly<ControlInput>): str
   if (input.active) return '前方の生成ラインで反映';
   if (mode === 'keyboard') return '方向キーなし → 平らに戻ります';
   return input.pulse ? '音程不明 → 波だけを作ります' : '無音・音程不明 → 平らに戻ります';
+}
+
+function bestRecordLabel(record: BestScore): string {
+  return !record.available ? '読み込み不可' : record.best === null ? '記録なし' : `${record.best.toLocaleString('ja-JP')} 点`;
 }
 
 function text(g: CanvasRenderingContext2D, value: string, x: number, y: number,
