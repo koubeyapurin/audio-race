@@ -168,3 +168,122 @@ describe('PlayScene のライフサイクル（#9）', () => {
     expect(goTo.mock.calls[0][1].source).toBe(src);
   });
 });
+
+/** 最小の DOM 模型（ボタンの作成・クリック・削除だけ）。 */
+type FakeEl = {
+  tag: string; className: string; type: string; textContent: string; children: FakeEl[];
+  attrs: Record<string, string>; style: { cssText: string }; removed: boolean;
+  listeners: Record<string, (() => void)[]>;
+  addEventListener(t: string, f: () => void): void; removeEventListener(): void;
+  setAttribute(k: string, v: string): void; append(...c: FakeEl[]): void; remove(): void; click(): void; blur(): void;
+};
+function fakeDom() {
+  const make = (tag: string): FakeEl => {
+    const el: FakeEl = {
+      tag, className: '', type: '', textContent: '', children: [], attrs: {}, style: { cssText: '' }, removed: false, listeners: {},
+      addEventListener: (t, f) => { (el.listeners[t] ??= []).push(f); },
+      removeEventListener: () => {},
+      setAttribute: (k, v) => { el.attrs[k] = v; },
+      append: (...c) => { el.children.push(...c); },
+      remove: () => { el.removed = true; },
+      click: () => { for (const f of el.listeners.click ?? []) f(); },
+      blur: () => {},
+    };
+    return el;
+  };
+  vi.stubGlobal('document', { createElement: make });
+  const ui = make('div');
+  const live = () => ui.children.filter((c) => !c.removed);
+  const pauseButton = () => live().find((c) => c.className === 'pause-button')!;
+  const menuButton = (text: string) =>
+    live().find((c) => c.className === 'pause-menu')?.children.find((b) => b.textContent.startsWith(text));
+  return { ui, live, pauseButton, menuButton };
+}
+
+describe('一時停止ボタン（#34）', () => {
+  function sceneWithDom() {
+    const dom = fakeDom();
+    const src = fakeSource();
+    const goTo = vi.fn();
+    const ctx = { goTo, ui: dom.ui } as unknown as SceneContext;
+    const scene = new PlayScene();
+    scene.enter(ctx, { source: src as unknown as InputSource });
+    return { dom, src, goTo, scene };
+  }
+
+  it('プレイ中は常に見えていて、タップでポーズ（マイク停止）→ もう一度で再開（start し直す）', async () => {
+    const { dom, src } = sceneWithDom();
+    src.finishStart();
+    await flush();
+    const b = dom.pauseButton();
+    expect(b.attrs['aria-label']).toBe('一時停止');
+    expect(b.style.cssText).toContain('height:44px');
+
+    b.click();
+    expect(src.running).toBe(false);
+    expect(b.attrs['aria-label']).toBe('再開');
+    expect(dom.menuButton('再開')).toBeDefined();
+
+    b.click();
+    expect(src.starts).toBe(2);
+    expect(dom.menuButton('再開')).toBeUndefined();
+    vi.unstubAllGlobals();
+  });
+
+  it('ポーズメニューの「タイトルへ」でタイトルに戻る', async () => {
+    const { dom, src, goTo } = sceneWithDom();
+    src.finishStart();
+    await flush();
+    dom.pauseButton().click();
+    dom.menuButton('タイトルへ')!.click();
+    expect(goTo).toHaveBeenCalledWith('title', undefined);
+    vi.unstubAllGlobals();
+  });
+
+  it('ポーズメニューの「再開」ボタンでも、ボタンの表示が一時停止に戻る', async () => {
+    const { dom, src } = sceneWithDom();
+    src.finishStart();
+    await flush();
+    dom.pauseButton().click();
+    dom.menuButton('再開')!.click();
+    expect(dom.pauseButton().attrs['aria-label']).toBe('一時停止');
+    vi.unstubAllGlobals();
+  });
+
+  it('シーンを離れるとボタンもメニューも消え、入力源は止まる', async () => {
+    const { dom, src, scene } = sceneWithDom();
+    src.finishStart();
+    await flush();
+    dom.pauseButton().click();
+    scene.exit();
+    expect(dom.live()).toHaveLength(0);
+    expect(src.running).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
+  it('ボタンはクリックでフォーカスを残さず、ポーズ中の Enter は既定の動作を止める', async () => {
+    const { dom, src, scene } = sceneWithDom();
+    src.finishStart();
+    await flush();
+    let blurred = 0;
+    (dom.pauseButton() as unknown as { blur: () => void }).blur = () => { blurred++; };
+    dom.pauseButton().click();
+    expect(blurred).toBe(1);
+    let prevented = 0;
+    scene.onKeyDown({ code: 'Enter', preventDefault: () => { prevented++; } } as KeyboardEvent);
+    expect(prevented).toBe(1);
+    expect(dom.pauseButton().attrs['aria-label']).toBe('一時停止');
+    vi.unstubAllGlobals();
+  });
+
+  it('Esc とタブ非表示の自動ポーズは今までどおり（ボタンの表示も連動）', async () => {
+    const { dom, src, scene } = sceneWithDom();
+    src.finishStart();
+    await flush();
+    scene.onHidden();
+    expect(dom.pauseButton().attrs['aria-label']).toBe('再開');
+    scene.onKeyDown(key('Escape'));
+    expect(dom.pauseButton().attrs['aria-label']).toBe('一時停止');
+    vi.unstubAllGlobals();
+  });
+});

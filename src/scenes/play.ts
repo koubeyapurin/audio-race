@@ -31,12 +31,15 @@ export class PlayScene implements Scene<'play'> {
   /** start() の途中で stop() したか（完了したら止めてやり直す）。 */
   private stoppedWhileStarting = false;
   private pauseMenu: HTMLElement | null = null;
+  /** 常に見える一時停止ボタン（Esc キーのないスマホ向け、#34）。 */
+  private pauseButton: HTMLButtonElement | null = null;
 
   enter(ctx: SceneContext, params: SceneParams['play']): void {
     this.ctx = ctx;
     this.source = params.source;
     this.terrain = new TerrainGenerator(START_X + LOOKAHEAD_PX);
     this.startSource();
+    this.createPauseButton();
   }
 
   update(dtSec: number, nowMs: number): void {
@@ -113,6 +116,8 @@ export class PlayScene implements Scene<'play'> {
     this.sourceReady = false;
     this.source.stop();
     this.closePauseMenu();
+    this.pauseButton?.remove();
+    this.pauseButton = null;
   }
 
   onKeyDown(e: KeyboardEvent): void {
@@ -121,6 +126,7 @@ export class PlayScene implements Scene<'play'> {
       if (this.paused) this.resume();
       else this.pause();
     } else if (this.paused && e.code === 'Enter') {
+      e.preventDefault();
       this.resume();
     } else if (this.paused && e.code === 'KeyT') {
       this.ctx.goTo('title', undefined);
@@ -140,6 +146,7 @@ export class PlayScene implements Scene<'play'> {
     this.source.stop();
     if (this.starting) this.stoppedWhileStarting = true;
     this.openPauseMenu();
+    this.updatePauseButton();
   }
 
   /** 再開：入力源を再開し、1秒のカウントダウンをはさむ。 */
@@ -147,6 +154,7 @@ export class PlayScene implements Scene<'play'> {
     if (!this.paused || this.exited) return;
     this.paused = false;
     this.closePauseMenu();
+    this.updatePauseButton();
     this.countdown = Math.max(this.countdown, RESUME_COUNTDOWN_SEC);
     this.startSource();
   }
@@ -166,6 +174,7 @@ export class PlayScene implements Scene<'play'> {
         }
         if (this.stoppedWhileStarting) {
           // 途中で stop されていた：入力源の実装によっては古いストリームが残るので、止めてやり直す
+          // TODO(#34): ここはタップの外。iOS で開き直せない場合は、ポーズ画面に戻して ▶ を押してもらう案（実機で確認してから）
           this.source.stop();
           this.startSource();
           return;
@@ -184,12 +193,16 @@ export class PlayScene implements Scene<'play'> {
     if (typeof document === 'undefined') return;
     const menu = document.createElement('div');
     menu.className = 'pause-menu';
+    // 狭い画面や横向きの低い画面でも収まるように折り返す。下の手動操作エリア（#33）は避ける
     menu.style.cssText =
-      'position:absolute;left:50%;top:60%;transform:translate(-50%,0);display:flex;gap:16px;';
+      'position:absolute;left:50%;top:min(60%, calc(100% - 200px));transform:translate(-50%,0);' +
+      'display:flex;flex-wrap:wrap;justify-content:center;gap:12px;width:max-content;max-width:90%;';
     const button = (label: string, onClick: () => void) => {
       const b = document.createElement('button');
+      b.type = 'button';
       b.textContent = label;
-      b.style.cssText = 'font-size:20px;padding:10px 24px;border-radius:8px;border:0;cursor:pointer;';
+      b.style.cssText =
+        'font-size:20px;min-height:44px;padding:10px 24px;border-radius:8px;border:0;cursor:pointer;';
       b.addEventListener('click', onClick);
       menu.append(b);
     };
@@ -197,6 +210,35 @@ export class PlayScene implements Scene<'play'> {
     button('タイトルへ（T）', () => this.ctx.goTo('title', undefined));
     this.ctx.ui.append(menu);
     this.pauseMenu = menu;
+  }
+
+  /** 右上の一時停止ボタン。タップで pause / resume の既存の経路を通る。 */
+  private createPauseButton(): void {
+    if (typeof document === 'undefined') return;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'pause-button';
+    b.style.cssText =
+      // 右上の自己ベスト表示（HUD）の左隣の空き。下の手動操作エリア（#33）は避ける
+      'position:absolute;top:max(8px, env(safe-area-inset-top));right:21%;' +
+      'width:44px;height:44px;font-size:20px;line-height:1;border-radius:22px;border:2px solid rgba(255,255,255,.6);' +
+      'background:rgba(16,19,28,.7);color:#fff;cursor:pointer;touch-action:manipulation;';
+    // マウスで押してもフォーカスを残さない（残ると、ポーズ中の Enter でボタンも押されてしまう）
+    b.addEventListener('mousedown', (e) => e.preventDefault());
+    b.addEventListener('click', () => {
+      b.blur();
+      if (this.paused) this.resume();
+      else this.pause();
+    });
+    this.ctx.ui.append(b);
+    this.pauseButton = b;
+    this.updatePauseButton();
+  }
+
+  private updatePauseButton(): void {
+    if (!this.pauseButton) return;
+    this.pauseButton.textContent = this.paused ? '▶' : 'Ⅱ';
+    this.pauseButton.setAttribute('aria-label', this.paused ? '再開' : '一時停止');
   }
 
   private closePauseMenu(): void {
