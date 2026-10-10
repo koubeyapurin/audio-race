@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HudModel, SceneContext } from '../core/types';
 import { NEUTRAL_INPUT } from '../core/types';
 import { GAME, VIEW } from '../core/config';
 import { KeyboardInput } from '../input/keyboard';
 import { drawHud } from './hud';
 import { PlayScene } from '../scenes/play';
+import { recordBestScore } from '../scenes/resultRecords';
 
 function model(extra: Partial<HudModel> = {}): HudModel {
   return { mode: 'keyboard', score: 400, lives: 2, progress: 0.25, remainingSec: 45,
@@ -38,7 +39,14 @@ function canvas() {
     clear: () => { ops.length = 0; } };
 }
 
-afterEach(() => { vi.restoreAllMocks(); });
+let storage: { getItem: ReturnType<typeof vi.fn>; setItem: ReturnType<typeof vi.fn> };
+beforeEach(() => {
+  const values = new Map<string, string>();
+  storage = { getItem: vi.fn((key: string) => values.get(key) ?? null),
+    setItem: vi.fn((key: string, value: string) => { values.set(key, value); }) };
+  vi.stubGlobal('localStorage', storage);
+});
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('HUD', () => {
   it('スコア・残り時間・進捗・残り割合・ライフを表示し、描画状態を復元する', () => {
@@ -116,7 +124,7 @@ describe('HUD', () => {
     c.clear(); drawHud(c.g, model({ mode, progress: 0 })); expect(c.texts()).toContain('操作ガイド');
   });
 
-  it('不正値を表示・描画へ広げず、画面内・予告ラインの左側に収め、モデルを変更しない', () => {
+  it('不正値を表示・描画へ広げず、画面内・予告表示を避けて収め、モデルを変更しない', () => {
     const c = canvas();
     const hud = Object.freeze(model({ score: Infinity, lives: -5, progress: NaN, remainingSec: -10,
       mode: 'mic', input: Object.freeze({ slope: Infinity, intensity: 10, active: true, pulse: false }),
@@ -128,10 +136,36 @@ describe('HUD', () => {
         const [x, y, w, h] = op.args as number[];
         expect(x).toBeGreaterThanOrEqual(0); expect(y).toBeGreaterThanOrEqual(0);
         expect(w).toBeGreaterThanOrEqual(0); expect(h).toBeGreaterThanOrEqual(0);
-        expect(x + w).toBeLessThan(770); expect(y + h).toBeLessThanOrEqual(VIEW.height);
+        if (x < 1040) expect(x + w).toBeLessThan(770);
+        else expect(x + w).toBeLessThanOrEqual(VIEW.width);
+        expect(y + h).toBeLessThanOrEqual(VIEW.height);
       }
     }
     expect(hud.input.intensity).toBe(10); expect(hud.features!.rms).toBe(Infinity);
+  });
+
+  it('右上にモード別の過去の記録を表示し、毎フレーム保存データを読まない', () => {
+    recordBestScore('keyboard', 1200); recordBestScore('mic', 700); storage.getItem.mockClear();
+    const c = canvas();
+    for (let i = 0; i < 120; i++) drawHud(c.g, model({ progress: 0.1 + i / 1000 }));
+    expect(c.texts()).toContain('キー操作の自己ベスト'); expect(c.texts()).toContain('1,200 点');
+    expect(storage.getItem).toHaveBeenCalledOnce();
+    const label = c.ops.find((op) => op.name === 'fillText' && op.args[0] === '1,200 点')!;
+    expect(label.args[1]).toBeGreaterThanOrEqual(1040);
+    c.clear(); drawHud(c.g, model({ mode: 'mic' }));
+    expect(c.texts()).toContain('マイクの自己ベスト'); expect(c.texts()).toContain('700 点');
+    expect(storage.getItem).toHaveBeenCalledTimes(2);
+  });
+
+  it('記録更新・リトライで再読込し、未保存や利用不可を区別する', () => {
+    const c = canvas(); drawHud(c.g, model()); expect(c.texts()).toContain('記録なし');
+    recordBestScore('keyboard', 900); c.clear(); drawHud(c.g, model());
+    expect(c.texts()).toContain('900 点');
+    storage.getItem.mockClear(); c.clear(); drawHud(c.g, model({ progress: 0 }));
+    expect(storage.getItem).toHaveBeenCalledOnce(); expect(c.texts()).toContain('900 点');
+    vi.stubGlobal('localStorage', undefined); c.clear(); drawHud(c.g, model({ mode: 'mic' }));
+    expect(c.texts()).toContain('読み込み不可');
+    expect(c.texts()).toContain('このブラウザの記録');
   });
 
   it('本物のKeyboardInputの↑↓・強さ・Spaceを、そのフレームのHUDへ反映する', async () => {
