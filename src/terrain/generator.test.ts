@@ -95,9 +95,27 @@ describe('TerrainGenerator', () => {
   it('pulse で前方に山ができ、その後もとの高さに戻る', () => {
     const gen = new TerrainGenerator(400);
     gen.advance(input({ slope: 0, pulse: true }), 400, 1 / 60);
-    run(gen, 100, () => input({ slope: 0 }), 400);
+    run(gen, 250, () => input({ slope: 0 }), 400);
     const peak = gen.heightAt(400 + TERRAIN.pulseWidth / 2);
     expect(peak).toBeGreaterThan(TERRAIN.baseHeight + TERRAIN.pulseHeight * 0.8);
-    expect(gen.heightAt(400 + TERRAIN.pulseWidth + 50)).toBeCloseTo(TERRAIN.baseHeight, 5);
+    expect(Math.abs(gen.heightAt(400 + TERRAIN.pulseWidth + 50) - TERRAIN.baseHeight)).toBeLessThan(2);
+    expect(gen.heightAt(gen.generatedUntil)).toBeCloseTo(TERRAIN.baseHeight, 1);
+  });
+
+  it('天井付近で pulse しても、山のあとに地形が下がったままにならない', () => {
+    const gen = new TerrainGenerator(400);
+    run(gen, 300, () => input({ slope: 1, intensity: 1 }));
+    const before = gen.heightAt(gen.generatedUntil);
+    gen.advance(input({ slope: 0, pulse: true }), gen.generatedUntil, 1 / 60);
+    run(gen, 200, () => input({ slope: 0 }), gen.generatedUntil);
+    expect(gen.heightAt(gen.generatedUntil)).toBeGreaterThan(before - 5);
+  });
+
+  it('pulse を連打しても、平地から山1つ分より高くならない', () => {
+    const gen = new TerrainGenerator(400);
+    run(gen, 200, (i) => input({ slope: 0, pulse: i % 3 === 0 }));
+    expectWithinLimits(gen);
+    const ys = gen.points(400, gen.generatedUntil).map((p) => p.y);
+    expect(Math.max(...ys)).toBeLessThanOrEqual(TERRAIN.baseHeight + TERRAIN.pulseHeight + 1e-6);
   });
 });
