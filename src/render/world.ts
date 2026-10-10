@@ -47,10 +47,17 @@ export function drawWorld(g: CanvasRenderingContext2D, v: WorldView): void {
   drawRunner(g, v);
 }
 
+/** 空のグラデーションは変わらないので、描画先ごとに1回だけ作って使い回す（#29）。 */
+const skyCache = new WeakMap<CanvasRenderingContext2D, CanvasGradient>();
+
 function drawSky(g: CanvasRenderingContext2D): void {
-  const grad = g.createLinearGradient(0, 0, 0, VIEW.height);
-  grad.addColorStop(0, COLORS.skyTop);
-  grad.addColorStop(1, COLORS.skyBottom);
+  let grad = skyCache.get(g);
+  if (!grad) {
+    grad = g.createLinearGradient(0, 0, 0, VIEW.height);
+    grad.addColorStop(0, COLORS.skyTop);
+    grad.addColorStop(1, COLORS.skyBottom);
+    skyCache.set(g, grad);
+  }
   g.fillStyle = grad;
   g.fillRect(0, 0, VIEW.width, VIEW.height);
 }

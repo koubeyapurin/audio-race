@@ -49,14 +49,16 @@ export function stepGame(prev: GameState, dtSec: number, world: StepWorld): { st
     elapsedSec,
     runner: { x, y: world.heightAt(x) },
   };
-  const collected = new Set(prev.collectedIds);
+  // 収集があったフレームだけ新しい Set を作る（以前の state の Set は書き換えない）。#29
+  let collected: Set<string> | null = null;
   const c = runnerCenter(s);
 
   for (const item of world.items) {
     if (Math.abs(item.x - c.x) > item.w / 2 + GAME.runnerRadius) continue;
     if (!circleHitsRect(c.x, c.y, GAME.runnerRadius, item)) continue;
 
-    if (item.kind === 'note' && !collected.has(item.id)) {
+    if (item.kind === 'note' && !(collected ?? prev.collectedIds).has(item.id)) {
+      collected ??= new Set(prev.collectedIds);
       collected.add(item.id);
       s.score += GAME.notePoints;
       s.notesCollected += 1;
@@ -67,7 +69,7 @@ export function stepGame(prev: GameState, dtSec: number, world: StepWorld): { st
       events.push({ type: 'hit', itemId: item.id, livesLeft: s.lives });
     }
   }
-  s.collectedIds = collected;
+  if (collected) s.collectedIds = collected;
 
   if (s.lives <= 0) {
     s.phase = 'gameover';
