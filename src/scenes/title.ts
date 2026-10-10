@@ -54,9 +54,10 @@ export class TitleScene implements Scene<'title'> {
       </div>
       <div class="actions">
         <button type="button" data-mode="mic">マイクで遊ぶ（M）</button>
-        <button type="button" class="secondary" data-mode="keyboard">キーボードで遊ぶ（Enter）</button>
+        <button type="button" class="secondary" data-mode="keyboard">ボタン・キーで遊ぶ（Enter）</button>
       </div>
       <p class="keys">キーボード：↑↓ 坂の向き ／ ←→・W/S 強さ ／ Space 波 ／ Esc ポーズ</p>
+      <p class="mobile-guide">スマホは横向きがおすすめ。画面のボタンでも地形を操作できます。</p>
       <p class="privacy">マイクはブラウザ内で解析します。音声の録音保存・外部送信はしません。</p>
     `;
     panel.querySelector<HTMLButtonElement>('[data-mode="mic"]')!
@@ -108,6 +109,6 @@ export class TitleScene implements Scene<'title'> {
     if (this.leaving || !this.ctx) return;
     this.leaving = true;
     if (mode === 'mic') this.ctx.goTo('micSetup', undefined);
-    else this.ctx.goTo('play', { source: new KeyboardInput() });
+    else this.ctx.goTo('play', { source: new KeyboardInput(window, this.ctx.ui) });
   }
 }

@@ -82,7 +82,7 @@ export class MicSetupScene implements Scene<'micSetup'> {
         }
       </style>
       <h1 id="mic-setup-title">マイクの準備</h1>
-      <p>静かな場所で、普段の声を基準にします。PCの再生音は小さくしてください。</p>
+      <p>静かな場所で、普段の声を基準にします。端末の再生音は小さくしてください。</p>
       <div class="actions">
         <button type="button" data-allow>① マイクを許可</button>
         <button type="button" data-stop>マイクを停止</button>
@@ -120,7 +120,7 @@ export class MicSetupScene implements Scene<'micSetup'> {
       </details>
       <button type="button" class="primary" data-play>④ マイクでスタート</button>
       <div class="actions">
-        <button type="button" data-keyboard>キーボードで遊ぶ（K）</button>
+        <button type="button" data-keyboard>ボタン・キーで遊ぶ（K）</button>
         <button type="button" data-title>タイトルへ（Esc）</button>
       </div>
       <p class="note">高い声で上る・低い声で下る・大きい声ほど強く・「タン」で波。音声の録音保存・外部送信はしません。</p>
@@ -157,7 +157,7 @@ export class MicSetupScene implements Scene<'micSetup'> {
     find<HTMLButtonElement>('[data-title]').addEventListener('click', () => this.navigate('title'));
     ctx.ui.append(panel);
     this.panel = panel;
-    this.stopMic('① マイクを許可してください。利用できない場合はキーボードでも遊べます。');
+    this.stopMic('① マイクを許可してください。利用できない場合はボタン・キーでも遊べます。');
   }
 
   update(_dtSec: number, nowMs: number): void {
@@ -342,6 +342,6 @@ export class MicSetupScene implements Scene<'micSetup'> {
     if (destination === 'mic' && (!this.baseDone || this.phase !== 'calibrated' || !this.mic.running)) return;
     this.leaving = true;
     if (destination === 'title') this.ctx.goTo('title', undefined);
-    else this.ctx.goTo('play', { source: destination === 'mic' ? this.mic : new KeyboardInput() });
+    else this.ctx.goTo('play', { source: destination === 'mic' ? this.mic : new KeyboardInput(window, this.ctx.ui) });
   }
 }

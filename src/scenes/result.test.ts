@@ -77,6 +77,12 @@ describe('結果画面の記録と再挑戦', () => {
     expect(readBestScore('keyboard').best).toBe(900);
   });
 
+  it('タッチ・キーが共通の手動モードの記録であることを表示する', () => {
+    const s = setup();
+    expect(s.text('best')).toBe('ボタン・キーの自己ベスト：800 点');
+    expect(s.text('mode')).toContain('自己ベストは共通');
+  });
+
   it('保存拒否や不正な結果でも表示とリトライを使える', () => {
     vi.stubGlobal('localStorage', { getItem: () => { throw new Error('denied'); } });
     const s = setup('mic', { score: NaN, notesCollected: Infinity, notesTotal: 0 });

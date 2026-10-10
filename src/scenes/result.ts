@@ -20,7 +20,7 @@ export class ResultScene implements Scene<'result'> {
     this.cleared = result.outcome === 'clear';
     const goal = resultGoal(result);
     const record = recordBestScore(this.source.kind, result.score);
-    const mode = this.source.kind === 'mic' ? 'マイク' : 'キーボード';
+    const mode = this.source.kind === 'mic' ? 'マイク' : 'ボタン・キー';
     const panel = document.createElement('section');
     panel.className = 'result-screen';
     panel.setAttribute('aria-labelledby', 'result-title');
@@ -79,7 +79,7 @@ export class ResultScene implements Scene<'result'> {
       : record.status === 'tied' ? '自己ベストと同点！ 記録はこのブラウザに保存されています。'
       : '記録はこのブラウザに保存されています。次は自己ベストを目指そう！';
     panel.querySelector<HTMLElement>('[data-mode]')!.textContent = this.source.kind === 'mic'
-      ? 'マイク操作で再挑戦します。結果画面ではマイクは停止中です。' : 'キーボード操作で再挑戦します。';
+      ? 'マイク操作で再挑戦します。結果画面ではマイクは停止中です。' : 'ボタン・キー操作で再挑戦します。自己ベストは共通です。';
     panel.querySelector<HTMLButtonElement>('[data-retry]')!.addEventListener('click', () => this.retry());
     panel.querySelector<HTMLButtonElement>('[data-title]')!.addEventListener('click', () => this.toTitle());
     ctx.ui.append(panel);
