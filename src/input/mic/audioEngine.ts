@@ -1,7 +1,7 @@
 import { PitchDetector } from 'pitchy';
 import type { AudioFeatures, MicErrorReason } from '../../core/types';
 import { MicUnavailableError } from '../../core/types';
-import { extractFeatures, INITIAL_FEATURE_STATE } from './features';
+import { extractFeatures, FEATURE_SETTINGS, INITIAL_FEATURE_STATE } from './features';
 import type { FeatureState } from './features';
 
 const BUFFER_SIZE = 2048;
@@ -122,7 +122,7 @@ export class AudioEngine {
     this.context = null;
   }
 
-  read(nowMs: number): AudioFeatures | null {
+  read(nowMs: number, pitchNoiseFloorRms: number = FEATURE_SETTINGS.silenceRms): AudioFeatures | null {
     const session = this.session;
     if (!this.running || !session || !this.context) return null;
     if (!session.stream.getAudioTracks().some((track) => track.readyState === 'live')) {
@@ -131,7 +131,7 @@ export class AudioEngine {
     }
     session.analyser.getFloatTimeDomainData(session.samples);
     const result = extractFeatures(session.samples, this.context.sampleRate, nowMs,
-      session.featuresState, session.detector);
+      session.featuresState, session.detector, pitchNoiseFloorRms);
     session.featuresState = result.state;
     return result.features;
   }

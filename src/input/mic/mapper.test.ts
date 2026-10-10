@@ -271,6 +271,7 @@ function audioEnvironment() {
     streams.push(stream); return stream;
   };
   let hz: number | null = null;
+  let amplitude = 0.2;
   const getUserMedia = vi.fn(async () => makeStream());
   const contexts: Context[] = [];
   class Context {
@@ -280,7 +281,7 @@ function audioEnvironment() {
     analyser = {
       fftSize: 0, smoothingTimeConstant: 0, disconnect: vi.fn(),
       getFloatTimeDomainData(samples: Float32Array) {
-        for (let i = 0; i < samples.length; i++) samples[i] = hz === null ? 0.0001 : 0.2 * Math.sin(2 * Math.PI * hz * i / 48000);
+        for (let i = 0; i < samples.length; i++) samples[i] = hz === null ? 0.0001 : amplitude * Math.sin(2 * Math.PI * hz * i / 48000);
       },
     };
     resume = vi.fn(async () => { this.state = 'running'; });
@@ -294,7 +295,9 @@ function audioEnvironment() {
   vi.stubGlobal('isSecureContext', true);
   vi.stubGlobal('window', new EventTarget());
   vi.stubGlobal('document', { createElement: (tag: string) => new Element(tag) });
-  return { getUserMedia, streams, contexts, makeStream, setHz: (value: number | null) => { hz = value; } };
+  return { getUserMedia, streams, contexts, makeStream,
+    setHz: (value: number | null) => { hz = value; },
+    setAmplitude: (value: number) => { amplitude = value; } };
 }
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -313,6 +316,52 @@ describe('マイク準備画面', () => {
     const measure = (from: number) => { for (let time = from; time <= from + 2016; time += 16) scene!.update(0.016, time); };
     return { env, ui, node, click, measure, goTo };
   }
+
+  it.each([[120, -1], [180, 1]])('準備から渡した入力は、声域外の小声%sHzでも最大勾配%sを保つ（#39）', async (hz, slope) => {
+    const { env, node, click, measure, goTo } = setup();
+    click('allow'); await flush(); click('noise'); measure(0);
+    env.setHz(130); click('base'); measure(2100);
+    env.setHz(125); click('low'); measure(4200);
+    env.setHz(160); click('high'); measure(6300);
+    expect(node('floor').value).toBe('0.0010');
+    click('play');
+    const params = goTo.mock.calls[0] as unknown as ['play', { source: MicInput }];
+    const source = params[1].source;
+    try {
+      env.setHz(hz); env.setAmplitude(0.012); await source.start();
+      let input = source.read(8400);
+      for (let time = 8416; time <= 8900; time += 16) input = source.read(time);
+      expect(source.debugFeatures()?.rms).toBeGreaterThan(0.001);
+      expect(source.debugFeatures()?.rms).toBeLessThan(0.01);
+      expect(source.debugFeatures()?.pitchHz).toBeCloseTo(hz, 0);
+      expect(input).toMatchObject({ slope, active: true, pulse: false });
+      // 音が止まったら、平滑化RMSが残っていても坂は即座に止める。
+      env.setHz(null); expect(source.read(8916)).toMatchObject({ slope: 0, active: false });
+      env.setHz(hz); source.stop(); await source.start();
+      expect(source.read(9000)).toMatchObject({ slope, active: true });
+      // 測り直した高い雑音しきい値を、同じ時刻のreadにも反映する。
+      source.setCalibration({ basePitchHz: 130, noiseFloorRms: 0.02 });
+      expect(source.read(9000)).toEqual(NEUTRAL_INPUT);
+      expect(source.debugFeatures()?.pitchHz).toBeNull();
+    } finally { source.stop(); }
+    expect(env.streams.every((stream) => stream.getTracks().every((track) => track.readyState === 'ended'))).toBe(true);
+    expect(env.contexts.every((context) => context.state === 'closed')).toBe(true);
+  });
+
+  it('雑音を測った後は、小声でも基準音と上下の声域を準備できる（#39）', async () => {
+    const { env, node, click, measure } = setup();
+    click('allow'); await flush(); click('noise'); measure(0);
+    env.setAmplitude(0.012);
+    env.setHz(130); click('base'); measure(2100);
+    expect(node('reference').value).toContain('130.');
+    env.setHz(125); click('low'); measure(4200); scene!.update(0.016, 6250);
+    expect(node('response').value).toContain('下り 100%');
+    env.setHz(160); click('high'); measure(6300); scene!.update(0.016, 8350);
+    expect(node('response').value).toContain('上り 100%');
+    expect(node('range').value).toContain('125.');
+    expect(node('range').value).toContain('160.');
+    expect(node('play').disabled).toBe(false);
+  });
 
   it('低い声と高い声を個別に測り、最大入力をプレビューし、設定をゲームへ引き継ぐ', async () => {
     const { env, node, click, measure, goTo } = setup();
