@@ -20,6 +20,22 @@ function run(gen: TerrainGenerator, frames: number, f: (i: number) => ControlInp
   for (let i = 0; i < frames; i++) gen.advance(f(i), start + i * SPEED_PER_FRAME, 1 / 60);
 }
 
+/** 生成済みの点列（サンプル点）が高さ・傾き・傾き変化量の上限を守っているか。 */
+function expectWithinLimits(gen: TerrainGenerator) {
+  const step = TERRAIN.sampleStep;
+  const n = Math.round(gen.generatedUntil / step);
+  const ys = Array.from({ length: n + 1 }, (_, i) => gen.heightAt(i * step));
+  let prevSlope = 0;
+  for (let i = 1; i < ys.length; i++) {
+    expect(ys[i]).toBeGreaterThanOrEqual(TERRAIN.minHeight);
+    expect(ys[i]).toBeLessThanOrEqual(TERRAIN.maxHeight);
+    const s = (ys[i] - ys[i - 1]) / step;
+    expect(Math.abs(s)).toBeLessThanOrEqual(TERRAIN.maxSlope + 1e-9);
+    expect(Math.abs(s - prevSlope), `x=${i * step}`).toBeLessThanOrEqual(TERRAIN.maxSlopeChangePerPx * step + 1e-9);
+    prevSlope = s;
+  }
+}
+
 describe('TerrainGenerator', () => {
   it('ランダム入力1万フレームでも高さ・傾きの上限を守り、生成済み部分は変わらない', () => {
     const r = rng(42);
@@ -35,15 +51,18 @@ describe('TerrainGenerator', () => {
       };
     });
 
-    const pts = gen.points(0, gen.generatedUntil);
-    for (let i = 1; i < pts.length; i++) {
-      const p = pts[i];
-      expect(p.y).toBeGreaterThanOrEqual(TERRAIN.minHeight);
-      expect(p.y).toBeLessThanOrEqual(TERRAIN.maxHeight);
-      const s = Math.abs(p.y - pts[i - 1].y) / (p.x - pts[i - 1].x);
-      expect(s).toBeLessThanOrEqual(TERRAIN.maxSlope + 1e-9);
-    }
+    expectWithinLimits(gen);
     for (const p of snapshot) expect(gen.heightAt(p.x)).toBeCloseTo(p.y, 9);
+  });
+
+  it('上り・下りを上限まで続けても、上限の手前で滑らかに減速する（#14）', () => {
+    for (const slope of [1, -1]) {
+      for (const pulse of [false, true]) {
+        const gen = new TerrainGenerator(400);
+        run(gen, 400, (i) => input({ slope, intensity: 1, pulse: pulse && i % 20 === 0 }));
+        expectWithinLimits(gen);
+      }
+    }
   });
 
   it('上り入力で上がり、下り入力で下がる', () => {
