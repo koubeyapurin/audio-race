@@ -22,6 +22,17 @@ function runUntil(s: GameState, world: StepWorld, untilX: number) {
 }
 
 describe('stepGame', () => {
+  it('収集がないフレームでは collectedIds を作り直さず、収集したときは前の Set を書き換えない（#29）', () => {
+    const items = [note(START_X + 300, 200 + GAME.runnerRadius)];
+    const s0 = createGameState();
+    const s1 = stepGame(s0, DT, flat(200, items)).state;
+    expect(s1.collectedIds).toBe(s0.collectedIds);
+    const { s } = runUntil(s1, flat(200, items), START_X + 600);
+    expect(s.collectedIds.size).toBe(1);
+    expect(s0.collectedIds.size).toBe(0);
+    expect(s1.collectedIds.size).toBe(0);
+  });
+
   it('高さが合った音符を1回だけ取れる', () => {
     const items = [note(START_X + 300, 200 + GAME.runnerRadius)];
     const { s, events } = runUntil(createGameState(), flat(200, items), START_X + 600);
