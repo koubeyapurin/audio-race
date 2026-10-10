@@ -38,9 +38,13 @@ export function extractFeatures(
   nowMs: number,
   previous: Readonly<FeatureState> = INITIAL_FEATURE_STATE,
   detector?: PitchEstimator,
+  pitchNoiseFloorRms: number = FEATURE_SETTINGS.silenceRms,
 ): { features: AudioFeatures; state: FeatureState } {
   if (!Number.isFinite(sampleRate) || sampleRate <= 0 || !Number.isFinite(nowMs)) {
     throw new RangeError('sampleRate は正の数、nowMs は有限の数にしてください');
+  }
+  if (!Number.isFinite(pitchNoiseFloorRms) || pitchNoiseFloorRms < 0 || pitchNoiseFloorRms >= 1) {
+    throw new RangeError('音程検出の雑音しきい値は0以上1未満の有限の数にしてください');
   }
 
   let squares = 0;
@@ -57,7 +61,9 @@ export function extractFeatures(
   let pitchHz: number | null = null;
   let clarity = 0;
   // 平滑化前の音量でゲートし、音を止めた瞬間から古い pitch を返さない。
-  if (valid && rawRms > FEATURE_SETTINGS.silenceRms) {
+  // 準備で測定した雑音しきい値を使い、静かな環境の小声も検出する。
+  // onsetの音量・立ち上がり条件は独立して維持する。
+  if (valid && rawRms > pitchNoiseFloorRms) {
     const estimator = detector ?? PitchDetector.forFloat32Array(samples.length);
     const [pitch, confidence] = estimator.findPitch(samples, sampleRate);
     clarity = Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0;

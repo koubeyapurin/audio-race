@@ -39,6 +39,70 @@ describe('extractFeatures', () => {
     expect(result.features.clarity).toBe(0.2);
   });
 
+  it.each([
+    { hz: 120, rate: 44100 }, { hz: 180, rate: 44100 },
+    { hz: 120, rate: 48000 }, { hz: 180, rate: 48000 },
+  ])('雑音しきい値0.001なら小声の$hz Hzを$rate Hzで検出する（#39）', ({ hz, rate }) => {
+    const wave = sine(hz, 0.012, rate);
+    expect(extractFeatures(wave, rate, 0).features.pitchHz).toBeNull();
+    const result = extractFeatures(wave, rate, 0, INITIAL_FEATURE_STATE, undefined, 0.001);
+    expect(result.state.rawRms).toBeGreaterThan(0.001);
+    expect(result.state.rawRms).toBeLessThan(0.01);
+    expect(result.features.pitchHz).toBeCloseTo(hz, 0);
+    expect(result.features.clarity).toBeGreaterThanOrEqual(FEATURE_SETTINGS.minClarity);
+    expect(result.features.onset).toBe(false);
+  });
+
+  it('校正しきい値より小さい音は、平滑化RMSが残っていても音程を検出しない', () => {
+    const previous = extractFeatures(sine(), SAMPLE_RATE, 0).state;
+    const detector: PitchEstimator = { findPitch: vi.fn((): [number, number] => [120, 1]) };
+    const result = extractFeatures(sine(120, 0.0005), SAMPLE_RATE, 16, previous, detector, 0.001);
+    expect(result.features.rms).toBeGreaterThan(0.001);
+    expect(result.features).toMatchObject({ pitchHz: null, clarity: 0, onset: false });
+    expect(detector.findPitch).not.toHaveBeenCalled();
+  });
+
+  it('小声を検出しても信頼度不足や安全範囲外の音程は無効のままにする', () => {
+    for (const [pitch, clarity] of [[120, 0.2], [20, 1], [2000, 1], [NaN, 1]]) {
+      const detector: PitchEstimator = { findPitch: () => [pitch, clarity] };
+      expect(extractFeatures(sine(120, 0.012), SAMPLE_RATE, 0, INITIAL_FEATURE_STATE, detector, 0.001)
+        .features.pitchHz).toBeNull();
+    }
+  });
+
+  it('小さい雑音にも信頼度判定を適用し、無音で音程やonsetを出さない', () => {
+    let seed = 12345;
+    const noise = Float32Array.from({ length: SIZE }, () => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      return (seed / 0xffffffff * 2 - 1) * 0.012;
+    });
+    const result = extractFeatures(noise, SAMPLE_RATE, 0, INITIAL_FEATURE_STATE, undefined, 0.001);
+    expect(result.state.rawRms).toBeGreaterThan(0.001);
+    expect(result.features).toMatchObject({ pitchHz: null, onset: false });
+    expect(extractFeatures(new Float32Array(SIZE), SAMPLE_RATE, 16, result.state, undefined, 0.001)
+      .features).toMatchObject({ pitchHz: null, onset: false });
+  });
+
+  it('音程の音量ゲートを変えてもRMSとonsetの条件・再武装・クールダウンを変えない', () => {
+    let standard = INITIAL_FEATURE_STATE;
+    let calibrated = INITIAL_FEATURE_STATE;
+    const amplitudes = [0, 0.012, 0.1, 0.1, 0, 0.1, 0, 0, 0, 0.1, 0, 0.012];
+    amplitudes.forEach((amplitude, i) => {
+      const wave = sine(120, amplitude);
+      const before = extractFeatures(wave, SAMPLE_RATE, i * 40, standard);
+      const after = extractFeatures(wave, SAMPLE_RATE, i * 40, calibrated, undefined, 0.001);
+      expect(after.features.onset).toBe(before.features.onset);
+      expect(after.state).toEqual(before.state);
+      standard = before.state; calibrated = after.state;
+    });
+  });
+
+  it('音程の雑音しきい値に不正値を渡せない', () => {
+    for (const floor of [NaN, Infinity, -Infinity, -0.001, 1]) {
+      expect(() => extractFeatures(sine(), SAMPLE_RATE, 0, INITIAL_FEATURE_STATE, undefined, floor)).toThrow(RangeError);
+    }
+  });
+
   it('雑音から信頼できない pitch を返さない', () => {
     let seed = 12345;
     const noise = Float32Array.from({ length: SIZE }, () => {

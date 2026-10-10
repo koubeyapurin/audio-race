@@ -68,7 +68,7 @@ export class MicInput implements InputSource {
       return { ...NEUTRAL_INPUT };
     }
     if (nowMs !== this.lastReadMs) {
-      this.latest = this.engine.read(nowMs);
+      this.latest = this.engine.read(nowMs, this.settings.noiseFloorRms);
       this.lastInput = this.latest ? mapAudioFeatures(this.latest, this.settings, this.sensitivity, this.range) : { ...NEUTRAL_INPUT };
       this.lastReadMs = nowMs;
       this.pulse = this.lastInput.pulse;
