@@ -7,6 +7,10 @@ export interface StepWorld {
   items: readonly StageItem[];
 }
 
+/**
+ * collectedIds は ReadonlySet として扱い、どこからも add / delete しない。
+ * そのため収集がないフレームでは前の state と同じ Set を共有してよい（#29）。
+ */
 export function createGameState(): GameState {
   return {
     phase: 'running',
