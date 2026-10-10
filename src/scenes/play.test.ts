@@ -1,45 +1,170 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { ControlInput, InputSource, SceneContext } from '../core/types';
 import { NEUTRAL_INPUT } from '../core/types';
-import { DevKeys } from './play';
+import { GAME } from '../core/config';
+import { PlayScene } from './play';
 
-// DevKeys は window にリスナーを登録するので、node 環境用の最小スタブを置く
-function stubWindow() {
-  const target = new EventTarget();
-  vi.stubGlobal('window', target);
-  const key = (type: string, code: string) => {
-    const e = new Event(type) as Event & { code: string; repeat: boolean };
-    e.code = code;
-    e.repeat = false;
-    target.dispatchEvent(e);
+/** start/stop の回数と「今動いているか」を数える入力源のスタブ。 */
+function fakeSource(opts: { failStart?: boolean } = {}) {
+  let resolveStart: () => void = () => {};
+  const src = {
+    kind: 'keyboard' as const,
+    running: false,
+    starts: 0,
+    stops: 0,
+    reads: 0,
+    input: { ...NEUTRAL_INPUT } as ControlInput,
+    start: vi.fn(function (this: void) {
+      src.starts++;
+      if (opts.failStart) return Promise.reject(new Error('denied'));
+      return new Promise<void>((r) => {
+        resolveStart = () => {
+          src.running = true;
+          r();
+        };
+      });
+    }),
+    stop: vi.fn(() => {
+      src.stops++;
+      src.running = false;
+    }),
+    read: vi.fn(() => {
+      src.reads++;
+      return src.input;
+    }),
+    debugFeatures: () => null,
+    finishStart: () => resolveStart(),
   };
-  return { key };
+  return src;
 }
 
-describe('DevKeys（#15）', () => {
-  it('入力源が Space を拾ったフレームでも、DevKeys 側の pulse は消費されて二重発火しない', () => {
-    const { key } = stubWindow();
-    const dev = new DevKeys();
-    dev.start();
-    key('keydown', 'Space');
+function fakeCtx() {
+  const goTo = vi.fn();
+  const ctx = { goTo, ui: { append: () => {} } } as unknown as SceneContext;
+  return { ctx, goTo };
+}
 
-    const first = dev.merge({ ...NEUTRAL_INPUT, pulse: true, active: true }); // 本物の KeyboardInput が拾った
-    const second = dev.merge({ ...NEUTRAL_INPUT }); // 次のフレームは中立
-    expect(first.pulse).toBe(true);
-    expect(second.pulse).toBe(false);
-    dev.stop();
-    vi.unstubAllGlobals();
+const flush = () => new Promise((r) => setTimeout(r, 0));
+const key = (code: string) => ({ code, preventDefault: () => {} }) as KeyboardEvent;
+
+function startedScene() {
+  const src = fakeSource();
+  const { ctx, goTo } = fakeCtx();
+  const scene = new PlayScene();
+  scene.enter(ctx, { source: src as unknown as InputSource });
+  return { scene, src, goTo };
+}
+
+describe('PlayScene のライフサイクル（#9）', () => {
+  it('start() が終わるまで入力を読まない', async () => {
+    const { scene, src } = startedScene();
+    scene.update(1 / 60, 0);
+    expect(src.reads).toBe(0);
+    src.finishStart();
+    await flush();
+    scene.update(1 / 60, 16);
+    expect(src.reads).toBe(1);
   });
 
-  it('Space と ↑ を同時に押して ↑ を離した後に、遅れた pulse が出ない', () => {
-    const { key } = stubWindow();
-    const dev = new DevKeys();
-    dev.start();
-    key('keydown', 'ArrowUp');
-    key('keydown', 'Space');
-    dev.merge({ ...NEUTRAL_INPUT, slope: 1, pulse: true, active: true });
-    key('keyup', 'ArrowUp');
-    expect(dev.merge({ ...NEUTRAL_INPUT }).pulse).toBe(false);
-    dev.stop();
-    vi.unstubAllGlobals();
+  it('ポーズで入力源を止め、再開で start し直す。ポーズ中はゲームが進まない', async () => {
+    const { scene, src } = startedScene();
+    src.finishStart();
+    await flush();
+
+    scene.onKeyDown(key('Escape'));
+    expect(src.stops).toBe(1);
+    expect(src.running).toBe(false);
+    const reads = src.reads;
+    for (let i = 0; i < 300; i++) scene.update(1 / 60, i * 16);
+    expect(src.reads).toBe(reads);
+
+    scene.onKeyDown(key('Escape'));
+    expect(src.starts).toBe(2);
+    src.finishStart();
+    await flush();
+    expect(src.running).toBe(true);
+  });
+
+  it('start の途中でポーズ→再開しても start を同時に走らせず、終了後にストリームが残らない', async () => {
+    // 「素直な」マイク実装の模型：start ごとにストリームを作り、stop は最後のストリームだけ止める
+    let live = 0;
+    let current: { on: boolean } | null = null;
+    const pending: (() => void)[] = [];
+    const naive = {
+      kind: 'mic' as const,
+      start: () =>
+        new Promise<void>((r) =>
+          pending.push(() => {
+            current = { on: true };
+            live++;
+            r();
+          }),
+        ),
+      stop: () => {
+        if (current?.on) {
+          current.on = false;
+          live--;
+        }
+      },
+      read: () => ({ ...NEUTRAL_INPUT }),
+      debugFeatures: () => null,
+    };
+    const { ctx } = fakeCtx();
+    const scene = new PlayScene();
+    scene.enter(ctx, { source: naive as unknown as InputSource });
+    for (let i = 0; i < 6; i++) scene.onKeyDown(key('Escape')); // ポーズ・再開を連打
+    expect(pending.length).toBe(1); // start は1つだけ
+    while (pending.length) {
+      pending.shift()!();
+      await flush();
+    }
+    expect(live).toBe(1); // 動作中は1本
+    scene.exit();
+    expect(live).toBe(0); // 終了後は0本
+  });
+
+  it('入力源の準備ができるまでカウントダウンが進まない', async () => {
+    const { scene, src, goTo } = startedScene();
+    const frames = Math.ceil((GAME.countdownSec + GAME.durationSec + 1) * 60);
+    for (let i = 0; i < frames; i++) scene.update(1 / 60, i * 16);
+    expect(goTo).not.toHaveBeenCalled();
+    expect(src.reads).toBe(0);
+  });
+
+  it('タブが隠れたら自動でポーズしてマイクを止める', async () => {
+    const { scene, src } = startedScene();
+    src.finishStart();
+    await flush();
+    scene.onHidden();
+    expect(src.running).toBe(false);
+  });
+
+  it('start() が終わる前にシーンを離れても、あとで必ず stop される（トラック残り防止）', async () => {
+    const { scene, src } = startedScene();
+    scene.exit();
+    src.finishStart();
+    await flush();
+    expect(src.running).toBe(false);
+  });
+
+  it('start() に失敗したらタイトルへ戻る（マイク拒否など）', async () => {
+    const src = fakeSource({ failStart: true });
+    const { ctx, goTo } = fakeCtx();
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    new PlayScene().enter(ctx, { source: src as unknown as InputSource });
+    await flush();
+    expect(goTo).toHaveBeenCalledWith('title', undefined);
+    err.mockRestore();
+  });
+
+  it('ゴールで結果画面へ1回だけ遷移する（リトライ用に同じ入力源を渡す）', async () => {
+    const { scene, src, goTo } = startedScene();
+    src.finishStart();
+    await flush();
+    const frames = Math.ceil((GAME.countdownSec + GAME.durationSec + 1) * 60);
+    for (let i = 0; i < frames; i++) scene.update(1 / 60, i * 16);
+    expect(goTo).toHaveBeenCalledTimes(1);
+    expect(goTo.mock.calls[0][0]).toBe('result');
+    expect(goTo.mock.calls[0][1].source).toBe(src);
   });
 });
