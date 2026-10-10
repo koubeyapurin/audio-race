@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>マイク解析の確認 | Voice Terrain Runner</title>
+    <style>
+      :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #101827; color: #eef3ff; }
+      body { max-width: 880px; margin: auto; padding: 32px 20px; line-height: 1.7; }
+      h1 { font-size: clamp(1.4rem, 4vw, 2rem); margin-bottom: 8px; }
+      h2 { font-size: 1.1rem; }
+      p { color: #c3cee4; }
+      .controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+      button, select { font: inherit; border-radius: 8px; padding: 8px 16px; border: 1px solid #697a99; background: #22304a; color: inherit; }
+      button { cursor: pointer; }
+      button:disabled { opacity: .45; cursor: default; }
+      #start { background: #325fc1; }
+      #status { min-height: 2em; }
+      .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
+      .metric { background: #1b263b; padding: 18px; border-radius: 12px; }
+      output { display: block; font-size: 1.8rem; font-variant-numeric: tabular-nums; }
+      meter { width: 100%; height: 20px; }
+      #onset[data-active="true"] { color: #8dffc0; }
+      textarea { box-sizing: border-box; width: 100%; min-height: 190px; padding: 12px; border: 1px solid #697a99; border-radius: 8px; background: #1b263b; color: inherit; font: .85rem/1.6 ui-monospace, monospace; resize: vertical; }
+      a { color: #a8caff; }
+      li { margin-bottom: 6px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a href="../">ゲームに戻る</a>
+      <h1>マイク解析の確認</h1>
+      <p>声の大きさ・高さ・立ち上がりを確認します。音声はこのブラウザ内だけで解析し、録音保存・外部送信しません。</p>
+      <div class="controls">
+        <button id="start" type="button">マイクを開始</button>
+        <button id="stop" type="button" disabled>停止</button>
+        <label for="phase">測定する声</label>
+        <select id="phase">
+          <option value="quiet">無音</option>
+          <option value="low">低い「あー」</option>
+          <option value="high">高い「あー」</option>
+          <option value="rhythm">短い「タン」</option>
+        </select>
+      </div>
+      <p id="status" role="status" aria-live="polite">停止中。開始ボタンを押してマイクを許可してください。</p>
+      <div class="metrics">
+        <section class="metric" aria-labelledby="rms-label">
+          <div id="rms-label">音量（平滑化した RMS）</div>
+          <output id="rms" aria-labelledby="rms-label">0.0000</output>
+          <meter id="rms-meter" min="0" max="1" value="0" aria-labelledby="rms-label"></meter>
+        </section>
+        <section class="metric" aria-labelledby="pitch-label">
+          <div id="pitch-label">声の高さ</div>
+          <output id="pitch" aria-labelledby="pitch-label">—</output>
+          <small>無音や不確かな推定では「—」</small>
+        </section>
+        <section class="metric" aria-labelledby="clarity-label">
+          <div id="clarity-label">音程の信頼度（clarity）</div>
+          <output id="clarity" aria-labelledby="clarity-label">0%</output>
+          <meter id="clarity-meter" min="0" max="1" value="0" aria-labelledby="clarity-label"></meter>
+        </section>
+        <section class="metric" aria-labelledby="onset-label">
+          <div id="onset-label">声の立ち上がり（onset）</div>
+          <output id="onset" aria-labelledby="onset-label" data-active="false">待機</output>
+          <small id="onset-count">検出 0 回</small>
+        </section>
+      </div>
+      <h2>確認手順</h2>
+      <ol>
+        <li>「無音」を選び、2秒ほど黙る。声の高さが「—」になり、立ち上がりが連発しないことを確認。</li>
+        <li>「低いあー」「高いあー」を切り替えて各2秒ほど発声し、高い声ほど Hz が大きくなることを確認。</li>
+        <li>「短いタン」を選び、間を空けて5回発声する。各発声で立ち上がりが検出され、長く伸ばす声では連発しないことを確認。</li>
+        <li>停止・再開始を試し、停止時にブラウザのマイク使用表示が消えることを確認。タブを隠した場合も停止します。</li>
+      </ol>
+      <p>初期のしきい値: 無音 RMS ≤ 0.01、信頼度 ≥ 85%、立ち上がりのクールダウン 150ms。マイクとの距離で測定値が変わります。</p>
+      <h2><label for="report">測定メモ（選択してコピーできます）</label></h2>
+      <p>数値の集計だけを表示します。開始すると集計をリセットし、停止してもメモは残ります。</p>
+      <textarea id="report" readonly spellcheck="false" aria-label="測定結果"></textarea>
+    </main>
+    <script type="module" src="./mic.ts"></script>
+  </body>
+</html>
