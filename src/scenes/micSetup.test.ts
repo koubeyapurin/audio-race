@@ -13,6 +13,7 @@ class Element extends EventTarget {
   value: string | number = '';
   disabled = false;
   hidden = false;
+  open = false;
   html = '';
   setAttribute(name: string, value: string) { this.attrs[name] = value; }
   set innerHTML(html: string) {
@@ -62,7 +63,7 @@ function setup() {
 
 describe('おすすめの声域合わせと上下の練習（#35）', () => {
   it('声域合わせは折りたたまずに表示し、基準音の後は練習未完了でもスキップできる', async () => {
-    const s = setup(); expect(s.panel.html).not.toContain('<details>');
+    const s = setup(); expect(s.panel.html).toContain('<section class="voice-range"');
     expect(s.panel.html).toContain('④ 自分の声域に合わせる（おすすめ・スキップ可）');
     expect(s.panel.html).toContain('⑤ マイクでスタート');
     expect(s.panel.html).toContain('約1.5秒先'); expect(s.node('skip-range').disabled).toBe(true);
@@ -82,6 +83,44 @@ describe('おすすめの声域合わせと上下の練習（#35）', () => {
     expect(s.node('up-check').textContent).toContain('✓ ↑ 上り100%');
     expect(s.node('down-check').textContent).toContain('✓ ↓ 下り100%');
     expect(s.node('play').disabled).toBe(false);
+  });
+
+  it('判定欄を開いたときだけ、音程・信頼度・雑音・声域・操作を表示する', async () => {
+    const s = setup(); await s.prepare();
+    const stopped = s.node('diagnostics').value;
+    s.setVoice(150); s.update(4200); expect(s.node('diagnostics').value).toBe(stopped);
+    s.mic.setPitchRange({ lowPitchHz: 125, highPitchHz: 160 });
+    s.node('diagnostics-panel').open = true;
+    s.setVoice(null, 0.06, 0.7); s.update(4300);
+    expect(s.node('diagnostics').value).toContain('入力RMS（平滑化後）: 0.0600');
+    expect(s.node('diagnostics').value).toContain('無音しきい値: 0.0010');
+    expect(s.node('diagnostics').value).toContain('音程: 未検出');
+    expect(s.node('diagnostics').value).toContain('信頼度: 70.0%（判定は85%以上）');
+    expect(s.node('diagnostics').value).toContain('解析対象の音程: 50〜1000 Hz');
+    expect(s.node('diagnostics').value).toContain('基準音: 130.0 Hz');
+    expect(s.node('diagnostics').value).toContain('下り100%の声: 125.0 Hz');
+    expect(s.node('diagnostics').value).toContain('上り100%の声: 160.0 Hz');
+    expect(s.node('diagnostics').value).toContain('操作: 0%（音程入力なし）');
+    s.setVoice(180); s.update(4400);
+    expect(s.node('diagnostics').value).toContain('音程: 180.0 Hz');
+    expect(s.node('diagnostics').value).toContain('操作: 上り 100%');
+  });
+
+  it('判定値を固定しても声の操作を止めず、更新再開と停止で古い値を解除する', async () => {
+    const s = setup(); await s.prepare(); s.node('diagnostics-panel').open = true;
+    s.setVoice(null, 0.06, 0.7); s.update(4200); s.click('freeze-diagnostics');
+    const frozen = s.node('diagnostics').value;
+    expect(s.node('freeze-diagnostics').attrs['aria-pressed']).toBe('true');
+    s.setVoice(150); s.update(4300); s.update(4550);
+    expect(s.node('diagnostics').value).toBe(frozen); expect(s.done('up')).toBe(true);
+    expect(s.node('response').value).toContain('上り 100%');
+    s.click('freeze-diagnostics'); s.update(4566);
+    expect(s.node('diagnostics').value).toContain('音程: 150.0 Hz');
+    s.click('freeze-diagnostics'); s.click('stop');
+    expect(s.node('diagnostics').value).toContain('マイク停止中');
+    expect(s.node('freeze-diagnostics').attrs['aria-pressed']).toBe('false');
+    expect(s.node('freeze-diagnostics').disabled).toBe(true);
+    expect(s.engine.running).toBe(false);
   });
 
   it('一瞬の最大入力・無音・音程不明・小さい操作量で練習を完了にしない', async () => {
