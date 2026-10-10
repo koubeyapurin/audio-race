@@ -3,6 +3,9 @@ import { TERRAIN } from '../core/config';
 
 export type TerrainConfig = typeof TERRAIN;
 
+/** 出力が目標の高さからずれたとき、1区間で詰める割合。 */
+const POSITION_GAIN = 0.08;
+
 /** pulse で追加する山（raised cosine）。 */
 interface Bump {
   startX: number;
@@ -23,6 +26,9 @@ export class TerrainGenerator implements Terrain {
   /** 実際に出力した最後の区間の傾き。 */
   private outSlope = 0;
   private bumps: Bump[] = [];
+  private prevBump = 0;
+  /** 直前の区間で、上下限の手前の減速によって出力が抑えられていたか。 */
+  private limited = false;
 
   constructor(
     initialFlatUntil: number,
@@ -100,6 +106,8 @@ export class TerrainGenerator implements Terrain {
       const u = (x - b.startX) / c.pulseWidth;
       if (u > 0 && u < 1) bump += (c.pulseHeight * (1 - Math.cos(2 * Math.PI * u))) / 2;
     }
+    // 連打で山が積み上がらないよう、重なっても1つ分の高さまで
+    bump = Math.min(bump, c.pulseHeight);
 
     // 4) 出力する点列の傾きを制限する（変化量 → 傾きの上限 → 上下限の手前での減速）
     const prev = this.heights[this.heights.length - 1];
@@ -107,17 +115,22 @@ export class TerrainGenerator implements Terrain {
     const maxDelta = accel * step;
     const lo = this.outSlope - maxDelta;
     const hi = this.outSlope + maxDelta;
-    let s = clamp((this.baseY + bump - prev) / step, lo, hi);
+    // 坂の傾き＋山の傾きに沿って進み、目標の高さとのずれは少しずつ詰める
+    // 上下限で抑えられている間は山の傾きを足さない（山の後半でへこむのを防ぐ）
+    const bumpSlope = this.limited ? 0 : (bump - this.prevBump) / step;
+    this.prevBump = bump;
+    const correction = (POSITION_GAIN * (this.baseY + bump - prev)) / step;
+    let s = clamp(this.slope + bumpSlope + correction, lo, hi);
     s = clamp(s, -c.maxSlope, c.maxSlope);
     // 次の点から先、変化量の上限で減速しても上下限を越えない傾きに抑える
+    const wanted = s;
     s = Math.min(s, Math.max(lo, brakeLimit(c.maxHeight - prev, accel, step)));
     s = Math.max(s, Math.min(hi, -brakeLimit(prev - c.minHeight, accel, step)));
+    this.limited = s !== wanted;
 
     const y = clamp(prev + s * step, c.minHeight, c.maxHeight);
     this.outSlope = (y - prev) / step;
     this.heights.push(y);
-    // 出力が目標から離れたら base も合わせ、ずれが溜まらないようにする
-    this.baseY = clamp(y - bump, c.minHeight, c.maxHeight);
   }
 }
 

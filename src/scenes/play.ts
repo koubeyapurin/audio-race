@@ -100,7 +100,7 @@ function drawCountdown(g: CanvasRenderingContext2D, n: number): void {
  * 入力源が何も入力していない（active=false）ときだけ ↑↓/←→/Space を補う。
  * #1 マージ後に #9 で削除する。
  */
-class DevKeys {
+export class DevKeys {
   private down = new Set<string>();
   private intensity = 0.5;
   private pulse = false;
@@ -126,12 +126,13 @@ class DevKeys {
   }
 
   merge(src: ControlInput): ControlInput {
+    // 入力源を優先するときも自分の pulse は必ず消費する（古い Space の二重発火を防ぐ #15）
+    const pulse = this.pulse;
+    this.pulse = false;
     if (src.active || src.pulse) return src;
     const up = this.down.has('ArrowUp');
     const dn = this.down.has('ArrowDown');
     const slope = up === dn ? 0 : up ? 1 : -1;
-    const pulse = this.pulse;
-    this.pulse = false;
     return { slope, intensity: this.intensity, pulse, active: slope !== 0 || pulse };
   }
 }
