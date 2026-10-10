@@ -64,7 +64,7 @@ const LAYOUT: Entry[] = [
   { t: 46, kind: 'note', y: 110 },
   { t: 47, kind: 'note', y: 120 },
   { t: 49.5, kind: 'pillar', top: 340 },
-  { t: 52, kind: 'note', y: 420 },
+  { t: 52, kind: 'note', y: 380 },
   { t: 54.5, kind: 'ceiling', bottom: 320 },
   { t: 56.5, kind: 'note', y: 240 },
 ];
