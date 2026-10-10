@@ -85,6 +85,52 @@ describe('PlayScene のライフサイクル（#9）', () => {
     expect(src.running).toBe(true);
   });
 
+  it('start の途中でポーズ→再開しても start を同時に走らせず、終了後にストリームが残らない', async () => {
+    // 「素直な」マイク実装の模型：start ごとにストリームを作り、stop は最後のストリームだけ止める
+    let live = 0;
+    let current: { on: boolean } | null = null;
+    const pending: (() => void)[] = [];
+    const naive = {
+      kind: 'mic' as const,
+      start: () =>
+        new Promise<void>((r) =>
+          pending.push(() => {
+            current = { on: true };
+            live++;
+            r();
+          }),
+        ),
+      stop: () => {
+        if (current?.on) {
+          current.on = false;
+          live--;
+        }
+      },
+      read: () => ({ ...NEUTRAL_INPUT }),
+      debugFeatures: () => null,
+    };
+    const { ctx } = fakeCtx();
+    const scene = new PlayScene();
+    scene.enter(ctx, { source: naive as unknown as InputSource });
+    for (let i = 0; i < 6; i++) scene.onKeyDown(key('Escape')); // ポーズ・再開を連打
+    expect(pending.length).toBe(1); // start は1つだけ
+    while (pending.length) {
+      pending.shift()!();
+      await flush();
+    }
+    expect(live).toBe(1); // 動作中は1本
+    scene.exit();
+    expect(live).toBe(0); // 終了後は0本
+  });
+
+  it('入力源の準備ができるまでカウントダウンが進まない', async () => {
+    const { scene, src, goTo } = startedScene();
+    const frames = Math.ceil((GAME.countdownSec + GAME.durationSec + 1) * 60);
+    for (let i = 0; i < frames; i++) scene.update(1 / 60, i * 16);
+    expect(goTo).not.toHaveBeenCalled();
+    expect(src.reads).toBe(0);
+  });
+
   it('タブが隠れたら自動でポーズしてマイクを止める', async () => {
     const { scene, src } = startedScene();
     src.finishStart();

@@ -24,6 +24,10 @@ export class PlayScene implements Scene<'play'> {
   private paused = false;
   /** start() が終わるまで入力を読まない。 */
   private sourceReady = false;
+  /** start() が進行中か（同時に2つ走らせない）。 */
+  private starting = false;
+  /** start() の途中で stop() したか（完了したら止めてやり直す）。 */
+  private stoppedWhileStarting = false;
   private pauseMenu: HTMLElement | null = null;
 
   enter(ctx: SceneContext, params: SceneParams['play']): void {
@@ -38,7 +42,8 @@ export class PlayScene implements Scene<'play'> {
     this.input = this.sourceReady ? this.source.read(nowMs) : { ...NEUTRAL_INPUT };
 
     if (this.countdown > 0) {
-      this.countdown -= dtSec;
+      // 入力源（マイク）の準備ができるまでカウントダウンを進めない
+      if (this.sourceReady) this.countdown -= dtSec;
       return;
     }
 
@@ -114,6 +119,7 @@ export class PlayScene implements Scene<'play'> {
     this.paused = true;
     this.sourceReady = false;
     this.source.stop();
+    if (this.starting) this.stoppedWhileStarting = true;
     this.openPauseMenu();
   }
 
@@ -129,15 +135,26 @@ export class PlayScene implements Scene<'play'> {
   /** 入力源を開始する。終わる前にシーンを離れたりポーズしたりしたら、すぐ止める。 */
   private startSource(): void {
     this.sourceReady = false;
+    if (this.starting) return; // 進行中の start の完了を待つ（下でやり直す）
+    this.starting = true;
+    this.stoppedWhileStarting = false;
     this.source.start().then(
       () => {
+        this.starting = false;
         if (this.exited || this.paused) {
           this.source.stop();
+          return;
+        }
+        if (this.stoppedWhileStarting) {
+          // 途中で stop されていた：入力源の実装によっては古いストリームが残るので、止めてやり直す
+          this.source.stop();
+          this.startSource();
           return;
         }
         this.sourceReady = true;
       },
       (err: unknown) => {
+        this.starting = false;
         console.error('[play] 入力の開始に失敗しました', err);
         if (!this.exited) this.ctx.goTo('title', undefined);
       },
